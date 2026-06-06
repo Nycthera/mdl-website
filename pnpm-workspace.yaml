@@ -1,0 +1,8 @@
+packages:
+  - "."
+
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - "@oxlint/*"
+  - "@next/swc-*"
+trustPolicy: no-downgrade
