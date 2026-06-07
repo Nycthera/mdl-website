@@ -1,0 +1,12 @@
+curl -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  https://api.supabase.com/v1/organizations
+# Create a new project (replace <org-id> with your organization ID)
+curl -X POST https://api.supabase.com/v1/projects \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "organization_id": "<org-id>",
+    "name": "mdl",
+    "region": "ap-northeast-1",
+    "db_pass": "Chenr0000@"
+  }'
