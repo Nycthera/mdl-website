@@ -42,3 +42,12 @@ next-env.d.ts
 
 #node modules
 */node_modules/*
+
+#.env
+.env.local
+
+#DS_Store
+.DS_Store
+
+#supabase
+/supabase/.temp/*

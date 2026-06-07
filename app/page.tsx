@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { readDatabaseRows } from "@/app/backend/server";
 
 export const metadata: Metadata = {
   title: "MDL — Intro",
@@ -6,6 +7,11 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
+  const test = readDatabaseRows("manga_data").then((rows) => {
+    console.log("DB rows:", rows);
+  }).catch((error) => {
+    console.error("Error reading database:", error);
+  });
   return (
     <main className="min-h-screen px-6 py-12 bg-gradient-to-b from-white to-gray-50 dark:from-[#071013] dark:to-[#061018]">
       <div className="max-w-4xl mx-auto">
