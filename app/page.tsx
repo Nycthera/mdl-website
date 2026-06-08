@@ -1,50 +1,166 @@
 import type { Metadata } from "next";
-import { readDatabaseRows } from "@/app/backend/server";
+import {
+  Download,
+  Database,
+  Package,
+  Zap,
+  ArrowRight,
+} from "lucide-react";
+import Link from 'next/link'
 
 export const metadata: Metadata = {
   title: "MDL — Intro",
-  description: "MDL — Introduction and overview of the project and website.",
+  description:
+    "MDL — Introduction and overview of the project and website.",
 };
 
+const features = [
+  {
+    icon: Zap,
+    title: "API First",
+    description:
+      "Integrate MDL into existing workflows with a simple HTTP API.",
+  },
+  {
+    icon: Download,
+    title: "Background Jobs",
+    description:
+      "Queue downloads and monitor progress without blocking requests.",
+  },
+  {
+    icon: Package,
+    title: "Archive Creation",
+    description:
+      "Automatically package downloaded content into CBZ archives.",
+  },
+  {
+    icon: Database,
+    title: "Tracking System",
+    description:
+      "Resume interrupted workflows and keep track of processed items.",
+  },
+];
+
 export default function Home() {
-  const test = readDatabaseRows("manga_data").then((rows) => {
-    console.log("DB rows:", rows);
-  }).catch((error) => {
-    console.error("Error reading database:", error);
-  });
   return (
-    <main className="min-h-screen px-6 py-12 bg-gradient-to-b from-white to-gray-50 dark:from-[#071013] dark:to-[#061018]">
-      <div className="max-w-4xl mx-auto">
-        <header className="text-center mb-12">
-          <h1 className="text-4xl font-extrabold mb-3">MDL</h1>
-          <p className="text-gray-700 dark:text-gray-300">MDL is a lightweight toolkit and web interface for managing media download workflows.</p>
-          <div className="mt-6 flex items-center justify-center gap-4">
-            <a href="/docs/API.md" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">API Docs</a>
-            <a href="/download" className="px-4 py-2 border rounded hover:bg-gray-100 dark:hover:bg-gray-800">Downloads</a>
+    <main className="min-h-screen overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white">
+      {/* Background glow */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-blue-500/20 blur-3xl" />
+      </div>
+      { /* top nav bar */}
+      <nav className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xl font-bold">MDL</div>
+            <div className="flex items-center gap-4">
+              <Link href="/login" className="rounded-lg px-3 py-2 transition hover:bg-white/10">
+                Login
+              </Link>
+            </div>
           </div>
-        </header>
+        </div>
+      </nav>
 
-        <section className="space-y-8">
-          <div>
-            <h2 className="text-2xl font-semibold mb-3">What is MDL?</h2>
-            <p className="text-gray-700 dark:text-gray-300">MDL provides a modular backend and frontend for discovering, downloading, and packaging media. The website hosts an API and tools to run background jobs, create archives, and keep track of processed items.</p>
+      <div className="relative mx-auto max-w-6xl px-6 py-20">
+        {/* Hero */}
+        <section className="text-center">
+          <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm backdrop-blur">
+            Open Source Media Toolkit
           </div>
 
-          <div>
-            <h3 className="text-xl font-semibold mb-3">Highlights</h3>
-            <ul className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <li className="p-4 bg-white/60 dark:bg-black/40 rounded shadow-sm">Flexible API-first design — use HTTP to integrate with other tools.</li>
-              <li className="p-4 bg-white/60 dark:bg-black/40 rounded shadow-sm">Background job system for long-running tasks with job polling.</li>
-              <li className="p-4 bg-white/60 dark:bg-black/40 rounded shadow-sm">CBZ and archive creation utilities to package downloaded content.</li>
-              <li className="p-4 bg-white/60 dark:bg-black/40 rounded shadow-sm">Simple tracking store to record processed items and resume workflows.</li>
-            </ul>
-          </div>
+          <h1 className="mt-8 text-6xl font-black tracking-tight">
+            MDL
+          </h1>
 
-          <div>
-            <h3 className="text-xl font-semibold mb-3">Who is this for?</h3>
-            <p className="text-gray-700 dark:text-gray-300">Developers and hobbyists who need a small, extensible backend for media automation and packaging. For direct download features, visit the dedicated Downloads page.</p>
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-300">
+            A lightweight toolkit for discovering, downloading,
+            packaging, and managing media workflows.
+          </p>
+
+          <div className="mt-10 flex flex-wrap justify-center gap-4">
+            <a
+              href="/download"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-medium transition hover:bg-blue-500"
+            >
+              Get Started
+              <ArrowRight size={18} />
+            </a>
+
+            <a
+              href="/docs/API.md"
+              className="rounded-xl border border-white/10 bg-white/5 px-6 py-3 backdrop-blur transition hover:bg-white/10"
+            >
+              API Documentation
+            </a>
           </div>
         </section>
+
+        {/* Stats */}
+        <section className="mt-24 grid gap-6 md:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+            <div className="text-3xl font-bold">REST</div>
+            <div className="mt-1 text-slate-400">
+              Modern API architecture
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+            <div className="text-3xl font-bold">CBZ</div>
+            <div className="mt-1 text-slate-400">
+              Built-in packaging support
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+            <div className="text-3xl font-bold">24/7</div>
+            <div className="mt-1 text-slate-400">
+              Background job processing
+            </div>
+          </div>
+        </section>
+
+        {/* About */}
+        <section className="mt-28">
+          <h2 className="text-3xl font-bold">What is MDL?</h2>
+
+          <p className="mt-4 max-w-3xl text-slate-300 leading-relaxed">
+            MDL provides a modular backend and frontend for
+            discovering, downloading, and packaging media. It
+            includes a flexible API, job queue system, archive
+            creation tools, and workflow tracking capabilities.
+          </p>
+        </section>
+
+        {/* Features */}
+        <section className="mt-16">
+          <div className="grid gap-6 md:grid-cols-2">
+            {features.map((feature) => {
+              const Icon = feature.icon;
+
+              return (
+                <div
+                  key={feature.title}
+                  className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur transition hover:border-blue-500/50 hover:bg-white/10"
+                >
+                  <Icon
+                    size={28}
+                    className="mb-4 text-blue-400"
+                  />
+
+                  <h3 className="text-xl font-semibold">
+                    {feature.title}
+                  </h3>
+
+                  <p className="mt-2 text-slate-400">
+                    {feature.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
       </div>
     </main>
   );
