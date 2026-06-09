@@ -206,5 +206,3 @@ curl http://localhost:3000/api/v1/jobs/kq0xgk-8f3a1b
 - CBZ creation uses the backend helper currently wired into the app.
 - The WeebCentral worker is still a placeholder in the current implementation.
 - The tracked manga store is currently JSON-based, not SQLite.
-
-If you want, I can also turn this into a formatted markdown page inside the site itself.
