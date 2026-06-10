@@ -4,12 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { logInUser } from "@/app/backend/supabaseFunctions/login/login";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import {
   Card,
@@ -22,34 +19,38 @@ import {
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { FaGithub as Github } from "react-icons/fa";
 import { MdBook } from "react-icons/md";
+import { registerUser } from "@/app/backend/supabaseFunctions/createUser/createUser";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
 
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
+  const [confirm, setConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     setError("");
+
+    if (password !== confirm) {
+      setError("Passwords do not match");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const user = await logInUser(email, password);
-
-      console.log("Logged in:", user?.email);
-
+      const user = await registerUser(email, password, username);
+      console.log("Registered:", user.email);
       router.push("/dashboard");
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to sign in"
+        err instanceof Error ? err.message : "Failed to create account"
       );
     } finally {
       setIsLoading(false);
@@ -73,44 +74,35 @@ export default function LoginPage() {
               </div>
 
               <h1 className="text-5xl font-bold tracking-tight">
-                Manage your media workflows.
+                Start automating your media.
               </h1>
 
               <p className="text-lg text-muted-foreground">
-                Download, package, track and automate manga
-                processing from a single dashboard.
+                Create an account to access downloads, archive generation,
+                and workflow tracking from a single dashboard.
               </p>
             </div>
           </div>
 
           <Card>
-            { /* add some stats */}
             <CardContent className="grid gap-4">
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Blazing fast downloads
-                </div>
+                <div>Blazing fast downloads</div>
               </div>
-
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Custom archive generation
-                </div>
+                <div>Custom archive generation</div>
               </div>
-              
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Workflow tracking and logs
-                </div>
+                <div>Workflow tracking and logs</div>
               </div>
             </CardContent>
           </Card>
@@ -120,22 +112,13 @@ export default function LoginPage() {
         <div className="flex items-center justify-center p-6">
           <Card className="w-full max-w-md">
             <CardHeader className="space-y-2">
-              <CardTitle className="text-3xl">
-                Welcome back
-              </CardTitle>
-
-              <CardDescription>
-                Sign in to continue to MDL
-              </CardDescription>
+              <CardTitle className="text-3xl">Create an account</CardTitle>
+              <CardDescription>Get started with MDL for free</CardDescription>
             </CardHeader>
 
             <CardContent>
               <div className="space-y-6">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  type="button"
-                >
+                <Button variant="outline" className="w-full" type="button">
                   <Github className="mr-2 h-4 w-4" />
                   Continue with GitHub
                 </Button>
@@ -148,67 +131,48 @@ export default function LoginPage() {
                   <Separator className="flex-1" />
                 </div>
 
-                <form
-                  onSubmit={handleSubmit}
-                  className="space-y-4"
-                >
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">
-                      Email
-                    </Label>
-
+                    <Label htmlFor="username">Username</Label>
                     <Input
-                      id="email"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) =>
-                        setEmail(e.target.value)
-                      }
+                      id="username"
+                      type="text"
+                      placeholder="Your username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       required
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="password">
-                        Password
-                      </Label>
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
 
-                      <Link
-                        href="/forgot-password"
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        Forgot password?
-                      </Link>
-                    </div>
-
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
                     <div className="relative">
                       <Input
                         id="password"
-                        type={
-                          showPassword
-                            ? "text"
-                            : "password"
-                        }
+                        type={showPassword ? "text" : "password"}
                         placeholder="••••••••"
                         value={password}
-                        onChange={(e) =>
-                          setPassword(e.target.value)
-                        }
+                        onChange={(e) => setPassword(e.target.value)}
                         required
                       />
-
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2"
-                        onClick={() =>
-                          setShowPassword(
-                            !showPassword
-                          )
-                        }
+                        onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
@@ -219,23 +183,31 @@ export default function LoginPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="remember"
-                      checked={rememberMe}
-                      onCheckedChange={(value) =>
-                        setRememberMe(
-                          value === true
-                        )
-                      }
-                    />
-
-                    <Label
-                      htmlFor="remember"
-                      className="font-normal"
-                    >
-                      Keep me signed in
-                    </Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm">Confirm password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirm"
+                        type={showConfirm ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        required
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 -translate-y-1/2"
+                        onClick={() => setShowConfirm(!showConfirm)}
+                      >
+                        {showConfirm ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
                   {error && (
@@ -244,16 +216,12 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading}
-                  >
+                  <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? (
-                      "Signing in..."
+                      "Creating account..."
                     ) : (
                       <>
-                        Sign In
+                        Create Account
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </>
                     )}
@@ -261,12 +229,12 @@ export default function LoginPage() {
                 </form>
 
                 <p className="text-center text-sm text-muted-foreground">
-                  Don't have an account?{" "}
+                  Already have an account?{" "}
                   <Link
-                    href="/register"
+                    href="/login"
                     className="font-medium text-foreground hover:underline"
                   >
-                    Create one
+                    Sign in
                   </Link>
                 </p>
               </div>
