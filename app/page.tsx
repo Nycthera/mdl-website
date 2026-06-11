@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { animate, stagger } from "animejs";
 
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { MdBook } from "react-icons/md";
 import { Download, FileText, Database, Workflow, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { supabase } from "./backend/supabaseFunctions/supabaseClient";
+import { toast } from "sonner";
 
 export default function Home() {
   const featuresRef = useRef<HTMLDivElement>(null);
   const aboutRef = useRef<HTMLElement>(null);
+  const router = useRouter();
+  const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     // Navbar
@@ -85,6 +90,41 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    async function checkAuth() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setLoggedIn(true);
+        toast("You're already logged in", {
+          id: "logged-in-toast",  // ✅ prevents duplicate toasts
+          description: "Head back to your dashboard.",
+          action: {
+            label: "Go to Dashboard",
+            onClick: () => {
+              toast.dismiss("logged-in-toast");  // dismiss on navigate
+              router.push("/dashboard");
+            },
+          },
+          duration: 8000,
+          style: {
+            background: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            color: "hsl(var(--card-foreground))",
+          },
+          classNames: {
+            description: "!text-muted-foreground",
+            actionButton: "!bg-primary !text-primary-foreground",
+          },
+        });
+      }
+    }
+    checkAuth();
+
+    // dismiss toast when leaving the page
+    return () => { toast.dismiss("logged-in-toast"); };
+  }, [router]);
+
+  
   return (
     <main className="min-h-screen bg-background">
       {/* Navbar */}
@@ -102,7 +142,9 @@ export default function Home() {
               <Link href="/docs/API.md">Docs</Link>
             </Button>
             <Button asChild className="rounded-xl">
-              <Link href="/login">Login</Link>
+              <Link href={loggedIn ? "/dashboard" : "/login"}>
+                {loggedIn ? "Dashboard" : "Login"}
+              </Link>
             </Button>
           </div>
         </div>
@@ -111,7 +153,6 @@ export default function Home() {
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-linear-to-b from-primary/10 via-transparent to-transparent" />
-
         <div className="container mx-auto py-28 text-center">
           <Badge variant="secondary" className="hero-item mb-4" style={{ opacity: 0 }}>
             Manga Download Toolkit
@@ -190,7 +231,7 @@ export default function Home() {
       <footer className="border-t border-border/40 py-12">
         <div className="container mx-auto">
           <p className="text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} MDL. All rights reserved. Licensed <a href="/license" className="text-primary hover:underline">Here</a>
+            © {new Date().getFullYear()} MDL. All rights reserved. Licensed <a href="/license" className="text-primary hover:underline">here</a>
           </p>
         </div>
       </footer>

@@ -46,6 +46,8 @@ import {
     getMangaStats,
     type Manga,
 } from "@/app/backend/supabaseFunctions/getMangaInfo/getMangaInfo";
+import { supabase } from "../backend/supabaseFunctions/supabaseClient";
+import { useRouter } from "next/navigation";
 
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
@@ -99,14 +101,26 @@ const jobStatusConfig = {
 
 const runningJobs = mockJobs.filter(j => j.status === "running").length;
 
+// get session to check if user is logged in
+
+
 export default function DashboardPage() {
     const [search, setSearch] = useState("");
     const [manga, setManga] = useState<Manga[]>([]);
     const [stats, setStats] = useState<Stats>({ total: 0, upToDate: 0, behind: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const router = useRouter();
 
-    
+    useEffect(() => {
+        async function checkAuth() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                router.push("/login");
+            }
+        }
+        checkAuth();
+    }, [router]);
 
     useEffect(() => {
         async function load() {
@@ -115,8 +129,6 @@ export default function DashboardPage() {
                     getMangaLibrary(),
                     getMangaStats(),
                 ]);
-                console.log("library:", library);
-                console.log("stats:", mangaStats);
                 setManga(library);
                 setStats(mangaStats);
             } catch (err) {
@@ -147,7 +159,15 @@ export default function DashboardPage() {
                         <Button variant="ghost" size="sm" asChild>
                             <Link href="/docs/API.md">Docs</Link>
                         </Button>
-                        <Button variant="ghost" size="icon">
+
+                        { /* destory a session */}
+                        <Button variant="ghost" size="icon" onClick={async () => {
+                            const { error } = await supabase.auth.signOut();
+                            router.push("/login")
+                            if (error) {
+                                console.error("Error signing out:", error);
+                            }
+                        }}>
                             <LogOut className="h-4 w-4" />
                         </Button>
                     </div>
