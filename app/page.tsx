@@ -17,6 +17,7 @@ import { MdBook } from "react-icons/md";
 import { Download, FileText, Database, Workflow, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "./backend/supabaseFunctions/supabaseClient";
+
 import { toast } from "sonner";
 
 export default function Home() {
