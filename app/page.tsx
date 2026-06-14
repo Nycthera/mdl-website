@@ -97,7 +97,7 @@ export default function Home() {
       if (session) {
         setLoggedIn(true);
         toast("You're already logged in", {
-          id: "logged-in-toast",  // ✅ prevents duplicate toasts
+          id: "logged-in-toast",  //  prevents duplicate toasts
           description: "Head back to your dashboard.",
           action: {
             label: "Go to Dashboard",
