@@ -46,11 +46,7 @@ export default function LoginPage() {
 
       router.push("/dashboard");
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to sign in"
-      );
+      setError(err instanceof Error ? err.message : "Failed to sign in");
     } finally {
       setIsLoading(false);
     }
@@ -77,40 +73,34 @@ export default function LoginPage() {
               </h1>
 
               <p className="text-lg text-muted-foreground">
-                Download, package, track and automate manga
-                processing from a single dashboard.
+                Download, package, track and automate manga processing from a
+                single dashboard.
               </p>
             </div>
           </div>
 
           <Card>
-            { /* add some stats */}
+            {/* add some stats */}
             <CardContent className="grid gap-4">
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Blazing fast downloads
-                </div>
+                <div>Blazing fast downloads</div>
               </div>
 
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Custom archive generation
-                </div>
+                <div>Custom archive generation</div>
               </div>
-              
+
               <div className="flex items-center gap-4">
                 <div className="rounded-full bg-primary/10 p-2">
                   <MdBook className="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  Workflow tracking and logs
-                </div>
+                <div>Workflow tracking and logs</div>
               </div>
             </CardContent>
           </Card>
@@ -120,22 +110,14 @@ export default function LoginPage() {
         <div className="flex items-center justify-center p-6">
           <Card className="w-full max-w-md">
             <CardHeader className="space-y-2">
-              <CardTitle className="text-3xl">
-                Welcome back
-              </CardTitle>
+              <CardTitle className="text-3xl">Welcome back</CardTitle>
 
-              <CardDescription>
-                Sign in to continue to MDL
-              </CardDescription>
+              <CardDescription>Sign in to continue to MDL</CardDescription>
             </CardHeader>
 
             <CardContent>
               <div className="space-y-6">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  type="button"
-                >
+                <Button variant="outline" className="w-full" type="button">
                   <Github className="mr-2 h-4 w-4" />
                   Continue with GitHub
                 </Button>
@@ -148,32 +130,23 @@ export default function LoginPage() {
                   <Separator className="flex-1" />
                 </div>
 
-                <form
-                  onSubmit={handleSubmit}
-                  className="space-y-4"
-                >
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">
-                      Email
-                    </Label>
+                    <Label htmlFor="email">Email</Label>
 
                     <Input
                       id="email"
                       type="email"
                       placeholder="you@example.com"
                       value={email}
-                      onChange={(e) =>
-                        setEmail(e.target.value)
-                      }
+                      onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="password">
-                        Password
-                      </Label>
+                      <Label htmlFor="password">Password</Label>
 
                       <Link
                         href="/forgot-password"
@@ -186,16 +159,10 @@ export default function LoginPage() {
                     <div className="relative">
                       <Input
                         id="password"
-                        type={
-                          showPassword
-                            ? "text"
-                            : "password"
-                        }
+                        type={showPassword ? "text" : "password"}
                         placeholder="••••••••"
                         value={password}
-                        onChange={(e) =>
-                          setPassword(e.target.value)
-                        }
+                        onChange={(e) => setPassword(e.target.value)}
                         required
                       />
 
@@ -204,11 +171,7 @@ export default function LoginPage() {
                         variant="ghost"
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2"
-                        onClick={() =>
-                          setShowPassword(
-                            !showPassword
-                          )
-                        }
+                        onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
@@ -223,17 +186,10 @@ export default function LoginPage() {
                     <Checkbox
                       id="remember"
                       checked={rememberMe}
-                      onCheckedChange={(value) =>
-                        setRememberMe(
-                          value === true
-                        )
-                      }
+                      onCheckedChange={(value) => setRememberMe(value === true)}
                     />
 
-                    <Label
-                      htmlFor="remember"
-                      className="font-normal"
-                    >
+                    <Label htmlFor="remember" className="font-normal">
                       Keep me signed in
                     </Label>
                   </div>
@@ -244,11 +200,7 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading}
-                  >
+                  <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? (
                       "Signing in..."
                     ) : (

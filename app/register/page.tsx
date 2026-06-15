@@ -49,9 +49,7 @@ export default function RegisterPage() {
       console.log("Registered:", user.email);
       router.push("/dashboard");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create account"
-      );
+      setError(err instanceof Error ? err.message : "Failed to create account");
     } finally {
       setIsLoading(false);
     }
@@ -78,8 +76,8 @@ export default function RegisterPage() {
               </h1>
 
               <p className="text-lg text-muted-foreground">
-                Create an account to access downloads, archive generation,
-                and workflow tracking from a single dashboard.
+                Create an account to access downloads, archive generation, and
+                workflow tracking from a single dashboard.
               </p>
             </div>
           </div>

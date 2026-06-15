@@ -13,6 +13,7 @@ The API exposes the current backend as Next.js route handlers. The main workflow
 ## Endpoints
 
 ### `POST /api/v1/download`
+
 Start a download job and let the server auto-detect the source.
 
 Request body:
@@ -47,6 +48,7 @@ Response:
 Status code: `202 Accepted`
 
 ### `POST /api/v1/gather`
+
 Probe the configured image hosts and return matching image URLs without downloading them.
 
 Request body:
@@ -64,13 +66,12 @@ Response:
 
 ```json
 {
-  "urls": [
-    ["https://example.com/.../0001-001.png", "chapter_0001"]
-  ]
+  "urls": [["https://example.com/.../0001-001.png", "chapter_0001"]]
 }
 ```
 
 ### `POST /api/v1/cbz`
+
 Create a CBZ archive from an existing folder.
 
 Request body:
@@ -90,6 +91,7 @@ Response:
 ```
 
 ### `GET /api/v1/tracked`
+
 Return tracked manga records stored by the backend.
 
 Response:
@@ -101,6 +103,7 @@ Response:
 ```
 
 ### `POST /api/v1/tracked`
+
 Store a tracked manga record manually.
 
 Request body:
@@ -122,6 +125,7 @@ Response:
 ```
 
 ### `GET /api/v1/status`
+
 Return the current in-memory job list and a simple status flag.
 
 Response:
@@ -134,6 +138,7 @@ Response:
 ```
 
 ### `POST /api/v1/stop`
+
 Set the global stop flag used by the backend helpers.
 
 Response:
@@ -145,6 +150,7 @@ Response:
 ```
 
 ### `GET /api/v1/jobs/:id`
+
 Fetch the current status and result for a background job.
 
 Response examples:

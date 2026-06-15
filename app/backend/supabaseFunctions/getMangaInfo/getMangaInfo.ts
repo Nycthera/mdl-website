@@ -15,7 +15,9 @@ export async function getMangaLibrary(): Promise<Manga[]> {
 
   const { data, error } = await supabase
     .from("manga_data")
-    .select("id, manga_name, date_last_checked, latest_chapter_local, latest_chapter_from_mangadex")
+    .select(
+      "id, manga_name, date_last_checked, latest_chapter_local, latest_chapter_from_mangadex"
+    )
     .order("manga_name", { ascending: true });
 
   if (error) throw new Error(error.message);
@@ -28,7 +30,9 @@ export async function getMangaBehind(): Promise<Manga[]> {
 
   const { data, error } = await supabase
     .from("manga_data")
-    .select("id, manga_name, date_last_checked, latest_chapter_local, latest_chapter_from_mangadex")
+    .select(
+      "id, manga_name, date_last_checked, latest_chapter_local, latest_chapter_from_mangadex"
+    )
     .filter("latest_chapter_local", "lt", "latest_chapter_from_mangadex")
     .order("manga_name", { ascending: true });
 

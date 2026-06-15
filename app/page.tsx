@@ -14,7 +14,13 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MdBook } from "react-icons/md";
-import { Download, FileText, Database, Workflow, ArrowRight } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Database,
+  Workflow,
+  ArrowRight,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "./backend/supabaseFunctions/supabaseClient";
 
@@ -93,16 +99,18 @@ export default function Home() {
 
   useEffect(() => {
     async function checkAuth() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session) {
         setLoggedIn(true);
         toast("You're already logged in", {
-          id: "logged-in-toast",  //  prevents duplicate toasts
+          id: "logged-in-toast", //  prevents duplicate toasts
           description: "Head back to your dashboard.",
           action: {
             label: "Go to Dashboard",
             onClick: () => {
-              toast.dismiss("logged-in-toast");  // dismiss on navigate
+              toast.dismiss("logged-in-toast"); // dismiss on navigate
               router.push("/dashboard");
             },
           },
@@ -122,10 +130,11 @@ export default function Home() {
     checkAuth();
 
     // dismiss toast when leaving the page
-    return () => { toast.dismiss("logged-in-toast"); };
+    return () => {
+      toast.dismiss("logged-in-toast");
+    };
   }, [router]);
 
-  
   return (
     <main className="min-h-screen bg-background">
       {/* Navbar */}
@@ -155,7 +164,11 @@ export default function Home() {
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-linear-to-b from-primary/10 via-transparent to-transparent" />
         <div className="container mx-auto py-28 text-center">
-          <Badge variant="secondary" className="hero-item mb-4" style={{ opacity: 0 }}>
+          <Badge
+            variant="secondary"
+            className="hero-item mb-4"
+            style={{ opacity: 0 }}
+          >
             Manga Download Toolkit
           </Badge>
 
@@ -197,10 +210,26 @@ export default function Home() {
 
         <div className="grid gap-6 md:grid-cols-2">
           {[
-            { icon: <Database className="h-8 w-8 text-primary" />, title: "API First", desc: "Integrate MDL into existing tools and services." },
-            { icon: <Workflow className="h-8 w-8 text-primary" />, title: "Background Jobs", desc: "Queue and monitor long-running downloads." },
-            { icon: <Download className="h-8 w-8 text-primary" />, title: "Archive Creation", desc: "Generate CBZ files and package media automatically." },
-            { icon: <Database className="h-8 w-8 text-primary" />, title: "Progress Tracking", desc: "Resume workflows and keep records of processed items." },
+            {
+              icon: <Database className="h-8 w-8 text-primary" />,
+              title: "API First",
+              desc: "Integrate MDL into existing tools and services.",
+            },
+            {
+              icon: <Workflow className="h-8 w-8 text-primary" />,
+              title: "Background Jobs",
+              desc: "Queue and monitor long-running downloads.",
+            },
+            {
+              icon: <Download className="h-8 w-8 text-primary" />,
+              title: "Archive Creation",
+              desc: "Generate CBZ files and package media automatically.",
+            },
+            {
+              icon: <Database className="h-8 w-8 text-primary" />,
+              title: "Progress Tracking",
+              desc: "Resume workflows and keep records of processed items.",
+            },
           ].map(({ icon, title, desc }) => (
             <Card key={title} className="feature-card" style={{ opacity: 0 }}>
               <CardHeader>
@@ -215,16 +244,21 @@ export default function Home() {
 
       {/* About */}
       <section ref={aboutRef} className="container mx-auto pb-24">
-        <Card className="about-card border-primary/20 bg-primary/5" style={{ opacity: 0 }}>
+        <Card
+          className="about-card border-primary/20 bg-primary/5"
+          style={{ opacity: 0 }}
+        >
           <CardHeader>
             <CardTitle>Who is MDL for?</CardTitle>
-            <CardDescription>Developers, hobbyists, and automation enthusiasts.</CardDescription>
+            <CardDescription>
+              Developers, hobbyists, and automation enthusiasts.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground">
-              Whether you're building download pipelines, creating archive workflows,
-              or automating content management, MDL provides a lightweight foundation
-              that is easy to extend.
+              Whether you're building download pipelines, creating archive
+              workflows, or automating content management, MDL provides a
+              lightweight foundation that is easy to extend.
             </p>
           </CardContent>
         </Card>
@@ -232,7 +266,10 @@ export default function Home() {
       <footer className="border-t border-border/40 py-12">
         <div className="container mx-auto">
           <p className="text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} MDL. All rights reserved. Licensed <a href="/license" className="text-primary hover:underline">here</a>
+            © {new Date().getFullYear()} MDL. All rights reserved. Licensed{" "}
+            <a href="/license" className="text-primary hover:underline">
+              here
+            </a>
           </p>
         </div>
       </footer>

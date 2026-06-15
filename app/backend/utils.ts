@@ -63,4 +63,3 @@ export function returnGlobFromURL(url: string): string {
 export function createFolderForManga(mangaTitle: string): string {
   return sanitizeFileName(mangaTitle).replace(/\s+/g, "_").toLowerCase();
 }
-
