@@ -14,6 +14,7 @@
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
     "animejs": "^4.4.1",
+    "axios": "^1.17.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
@@ -36,6 +37,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.0.0",
     "postcss": "^8.0.0",
+    "prettier": "^3.8.3",
     "react-doctor": "^0.4.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.0.0"

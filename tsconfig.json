@@ -35,7 +35,7 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+,     "app/backend/test.ts", "app/api/v1/download/mangadex/cover/route.ts"  ],
   "exclude": [
     "node_modules"
   ]
