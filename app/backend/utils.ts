@@ -1,65 +1,196 @@
-type URLType = "mangadex" | "weebcentral" | "lastation" | null;
+import axios from "axios";
+
+export type URLType = "mangadex" | "weebcentral" | "lastation" | null;
+
+const MANGADEX_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function validateMangaURL(url: string): boolean {
-  const regex =
-    /^https?:\/\/(?:weebcentral\.com\/chapters\/[^/]+|mangadex\.org\/title\/[0-9a-fA-F-]+\/[^/]+|scans\.lastation\.us\/manga\/[^/]+\/\d+(?:\.\d+)?-\d+\.png)$/;
+  try {
+    const parsed = new URL(url);
 
-  return regex.test(url);
+    // MangaDex
+    if (parsed.hostname === "mangadex.org") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+
+      return (
+        parts.length >= 3 &&
+        parts[0] === "title" &&
+        MANGADEX_UUID_REGEX.test(parts[1])
+      );
+    }
+
+    // WeebCentral
+    if (parsed.hostname === "weebcentral.com") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+
+      return parts.length >= 2 && parts[0] === "chapters";
+    }
+
+    // Lastation
+    if (parsed.hostname === "scans.lastation.us") {
+      return /^\/manga\/[^/]+\/\d+(?:\.\d+)?-\d+\.png$/i.test(parsed.pathname);
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export function defineTypeOfURL(url: string): URLType {
-  if (url.includes("mangadex.org/title/")) return "mangadex";
-  if (url.includes("weebcentral.com/chapters/")) return "weebcentral";
-  if (url.includes("scans.lastation.us/manga/")) return "lastation";
-  return null;
+  try {
+    const parsed = new URL(url);
+
+    switch (parsed.hostname) {
+      case "mangadex.org":
+        return "mangadex";
+
+      case "weebcentral.com":
+        return "weebcentral";
+
+      case "scans.lastation.us":
+        return "lastation";
+
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Mangadex:
- * https://mangadex.org/title/<id>/<slug>
+ * MangaDex:
+ * https://mangadex.org/title/<uuid>/<slug>
  */
 export function getMangaDexInfoFromURL(url: string): {
   id: string;
   name: string;
 } {
-  const match = url.match(
-    /^https?:\/\/mangadex\.org\/title\/([0-9a-fA-F-]+)\/([^/?#]+)/
-  );
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
 
-  if (!match) {
-    return { id: "Unknown ID", name: "Unknown Manga" };
+    if (
+      parts.length < 3 ||
+      parts[0] !== "title" ||
+      !MANGADEX_UUID_REGEX.test(parts[1])
+    ) {
+      return {
+        id: "Unknown ID",
+        name: "Unknown Manga",
+      };
+    }
+
+    const id = parts[1];
+    const slug = parts[2];
+
+    const name = decodeURIComponent(slug)
+      .replace(/--/g, " ")
+      .replace(/-/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    return {
+      id,
+      name,
+    };
+  } catch {
+    return {
+      id: "Unknown ID",
+      name: "Unknown Manga",
+    };
   }
+}
 
-  const id = match[1];
-  const slug = match[2];
+/**
+ * Equivalent to the Python:
+ *
+ * path = urlparse(url).path.strip("/")
+ * parts = path.split("/")
+ * if parts[0] == "title":
+ *     return parts[1]
+ */
+export function extractMangaDexUUID(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
 
-  const name = slug
-    .replace(/--/g, " ") // double hyphens → space (Mangadex style)
-    .replace(/-/g, " ") // hyphens → space
-    .replace(/\b\w/g, (c) => c.toUpperCase()); // title case
+    if (
+      parts[0] !== "title" ||
+      !parts[1] ||
+      !MANGADEX_UUID_REGEX.test(parts[1])
+    ) {
+      return null;
+    }
 
-  return { id, name };
+    return parts[1];
+  } catch {
+    return null;
+  }
 }
 
 export function getChapterIdFromURLWeebCentral(url: string): string {
-  const match = url.match(/^https?:\/\/weebcentral\.com\/chapters\/([^/?#]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : "Unknown Chapter ID";
-}
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
 
+    if (parts.length < 2 || parts[0] !== "chapters") {
+      return "Unknown Chapter ID";
+    }
+
+    // Returns everything after /chapters/
+    return decodeURIComponent(parts.slice(1).join("/"));
+  } catch {
+    return "Unknown Chapter ID";
+  }
+}
 export function sanitizeFileName(name: string): string {
   return name
-    .replace(/[^a-zA-Z0-9\s-]/g, "")
+    .replace(/[<>:"/\\|?*]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 export function returnGlobFromURL(url: string): string {
-  if (url.endsWith(".png")) return "*.png";
-  if (url.endsWith(".jpg") || url.endsWith(".jpeg")) return "*.jpg";
-  if (url.endsWith(".webp")) return "*.webp";
+  const lower = url.toLowerCase();
+
+  if (lower.endsWith(".png")) {
+    return "*.png";
+  }
+
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return "*.jpg";
+  }
+
+  if (lower.endsWith(".webp")) {
+    return "*.webp";
+  }
+
   return "*";
 }
 
 export function createFolderForManga(mangaTitle: string): string {
   return sanitizeFileName(mangaTitle).replace(/\s+/g, "_").toLowerCase();
+}
+
+export async function getChapterIDForMangaDex(
+  url: string,
+  mangaID: string
+): Promise<string | null> {
+  const baseUrl = "https://api.mangadex.org";
+
+  const resp = await axios.get(`${baseUrl}/manga/${mangaID}/feed`, {
+    params: {
+      "translatedLanguage[]": "en",
+      limit: 1,
+      "order[chapter]": "asc",
+    },
+  });
+
+  const chapters = resp.data?.data;
+
+  if (!chapters || chapters.length === 0) return null;
+
+  return chapters[0].id;
 }

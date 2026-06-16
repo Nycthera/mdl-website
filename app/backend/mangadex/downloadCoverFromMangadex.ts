@@ -1,33 +1,48 @@
-// backend/mangadex/downloadCoverFromMangadex.ts
+import { sanitizeFileName } from "@/app/backend/utils";
 
-export type CoverSize = "original" | "256" | "512";
+export async function downloadImagesForChapterMangadex(
+  baseUrl: string,
+  hash: string,
+  pages: string[],
+  outputDir: string
+) {
+  const fs = await import("fs");
+  const path = await import("path");
 
-export async function downloadCoverFromMangadex(
-  mangaId: string,
-  fileName: string,
-  size: CoverSize = "original"
-): Promise<Blob> {
-  let url = `https://uploads.mangadex.org/covers/${mangaId}/${fileName}`;
+  fs.mkdirSync(outputDir, { recursive: true });
 
-  switch (size) {
-    case "256":
-      url += ".256.jpg";
-      break;
+  const downloaded: string[] = [];
 
-    case "512":
-      url += ".512.jpg";
-      break;
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
 
-    case "original":
-    default:
-      break;
+    //  FIX: if already full URL, use it directly
+    const imageUrl = page.startsWith("http")
+      ? page
+      : `${baseUrl.replace(/\/$/, "")}/data/${hash}/${page}`;
+
+    const fileName = `${String(i + 1).padStart(3, "0")}-${page
+      .split("/")
+      .pop()}`;
+
+    const filePath = path.join(outputDir, sanitizeFileName(fileName));
+
+    try {
+      const res = await fetch(imageUrl);
+
+      if (!res.ok) {
+        console.log("Failed:", imageUrl);
+        continue;
+      }
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      fs.writeFileSync(filePath, buffer);
+
+      downloaded.push(filePath);
+    } catch (e) {
+      console.log("Error:", imageUrl, e);
+    }
   }
 
-  const res = await fetch(url);
-
-  if (!res.ok) {
-    throw new Error(`Failed to download cover from ${url}`);
-  }
-
-  return await res.blob();
+  return downloaded;
 }
