@@ -7,7 +7,7 @@
     "server": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "doctor": "npx react-doctor@latest",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write ."
