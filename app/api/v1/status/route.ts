@@ -4,5 +4,5 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   const time_now = new Date().toISOString();
-  return NextResponse.json({ status: "ok" });
+  return NextResponse.json({ status: "ok", time: time_now });
 }

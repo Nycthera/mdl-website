@@ -1,7 +1,7 @@
 // app/api/v1/mangadex/cover/route.ts
 
 import { NextResponse } from "next/server";
-import { getCoverFromMangadex } from "@/app/backend/mangadex/getCoverFromMangadex";
+import { getCoverFromMangadex } from "@/app/backend/mangadex/scraping/getCoverFromMangadex";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
