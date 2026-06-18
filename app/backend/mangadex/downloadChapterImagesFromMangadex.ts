@@ -4,7 +4,7 @@ import path from "path";
 import {
   getChapterImagesFromMangaDex,
   getAllChapterIDsForMangaDex,
-} from "@/app/backend/mangadex/getChapterImagesFromMangadex";
+} from "@/app/backend/mangadex/scraping/getChapterImagesFromMangadex";
 
 export async function downloadImagesForChapterMangadex(
   imageUrls: string[],

@@ -1,4 +1,4 @@
-// backend/mangadex/getCoverFromMangadex.ts
+// backend/mangadex/scraping/getCoverFromMangadex.ts
 
 export type CoverSize = "original" | "256" | "512";
 

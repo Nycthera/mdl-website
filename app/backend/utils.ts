@@ -152,22 +152,20 @@ export function sanitizeFileName(name: string): string {
     .trim();
 }
 
-export function returnGlobFromURL(url: string): string {
-  const lower = url.toLowerCase();
+export function returnGlobFromURL(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
 
-  if (lower.endsWith(".png")) {
-    return "*.png";
+    // /manga/Wistoria-Wand-and-Sword/0065-001.png
+    if (parts.length < 2 || parts[0] !== "manga") {
+      return null;
+    }
+
+    return parts[1];
+  } catch {
+    return null;
   }
-
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-    return "*.jpg";
-  }
-
-  if (lower.endsWith(".webp")) {
-    return "*.webp";
-  }
-
-  return "*";
 }
 
 export function createFolderForManga(mangaTitle: string): string {

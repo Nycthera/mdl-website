@@ -1,3 +1,4 @@
+// backend/mangadex/scraping/getChapterImagesFromMangadex.ts
 export interface AtHomeResponse {
   baseUrl: string;
   chapter: {
