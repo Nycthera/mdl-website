@@ -9,7 +9,7 @@ const baseUrls = [
 ];
 
 const client = axios.create({
-  timeout: 5000,
+  timeout: 8000,
   validateStatus: () => true,
 });
 
@@ -41,12 +41,14 @@ async function findWorkingUrl(candidates: string[]): Promise<string | null> {
 export async function gatherAllUrlsFromSample(
   sampleUrl: string,
   maxChapters = 2000,
-  maxPages = 100
+  maxPages = 100,
+  maxConsecutiveMisses = 3
 ): Promise<string[]> {
   const mangaName = returnGlobFromURL(sampleUrl);
   if (!mangaName) throw new Error("Invalid manga URL");
 
   const urls: string[] = [];
+  let consecutiveMisses = 0;
 
   for (let chapter = 1; chapter <= maxChapters; chapter++) {
     const chapterStr = chapter.toString().padStart(4, "0");
@@ -55,7 +57,15 @@ export async function gatherAllUrlsFromSample(
       baseUrls.map((base) => `${base}${mangaName}/${chapterStr}-001.png`)
     );
 
-    if (!firstPageUrl) break;
+    if (!firstPageUrl) {
+      consecutiveMisses++;
+      // Only treat the manga as "ended" after several chapters in a row
+      // fail to resolve — a single miss is more likely a flaky mirror
+      // (timeout/rate-limit) than proof the chapter doesn't exist.
+      if (consecutiveMisses >= maxConsecutiveMisses) break;
+      continue;
+    }
+    consecutiveMisses = 0;
 
     urls.push(firstPageUrl);
 

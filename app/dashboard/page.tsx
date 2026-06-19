@@ -26,6 +26,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { MdBook } from "react-icons/md";
 import {
   Download,
@@ -39,6 +41,8 @@ import {
   Activity,
   Archive,
   LogOut,
+  Plus,
+  Loader2,
 } from "lucide-react";
 
 import {
@@ -48,8 +52,12 @@ import {
 } from "@/app/backend/supabaseFunctions/getMangaInfo/getMangaInfo";
 import { supabase } from "../backend/supabaseFunctions/supabaseClient";
 import { useRouter } from "next/navigation";
+import { defineTypeOfURL } from "@/app/backend/utils";
+
+import { getMangaDexInfoFromURL } from "@/app/backend/utils";
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
+type Source = "mangadex" | "manual" | "weebcentral";
 
 interface Job {
   id: string;
@@ -57,6 +65,11 @@ interface Job {
   chapters: string;
   status: "running" | "queued" | "done" | "failed";
   progress: number;
+  source: Source;
+  /** Short live-status line, e.g. current page / download speed */
+  detail?: string;
+  /** Estimated time remaining, e.g. "~1m left" */
+  eta?: string;
 }
 
 interface Stats {
@@ -65,37 +78,20 @@ interface Stats {
   behind: number;
 }
 
-// --- Mock jobs (no jobs table yet) ---
-const mockJobs: Job[] = [
-  {
-    id: "j1",
-    manga: "Otonari no Tenshi sama",
-    chapters: "Ch. 27",
-    status: "running",
-    progress: 62,
+const sourceConfig: Record<Source, { label: string; className: string }> = {
+  mangadex: {
+    label: "MangaDex",
+    className: "text-orange-600 bg-orange-50 border-orange-200",
   },
-  {
-    id: "j2",
-    manga: "Alya Sometimes Hides Her Feelings",
-    chapters: "Ch. 80–82",
-    status: "queued",
-    progress: 0,
+  manual: {
+    label: "Manual",
+    className: "text-purple-600 bg-purple-50 border-purple-200",
   },
-  {
-    id: "j3",
-    manga: "Wistoria: Wand and Sword",
-    chapters: "Ch. 65–66",
-    status: "queued",
-    progress: 0,
+  weebcentral: {
+    label: "WeebCentral",
+    className: "text-sky-600 bg-sky-50 border-sky-200",
   },
-  {
-    id: "j4",
-    manga: "Onii-chan wa Oshimai!",
-    chapters: "Ch. 110–112",
-    status: "done",
-    progress: 100,
-  },
-];
+};
 
 // --- Helpers ---
 function getMangaStatus(manga: Manga): MangaStatus {
@@ -136,8 +132,7 @@ const jobStatusConfig = {
   done: "text-green-600 bg-green-50 border-green-200",
   failed: "text-destructive bg-destructive/10 border-destructive/20",
 };
-
-const runningJobs = mockJobs.filter((j) => j.status === "running").length;
+const mockJobs: Job[] = [];
 
 // get session to check if user is logged in
 
@@ -151,7 +146,107 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [newMangaUrl, setNewMangaUrl] = useState("");
+  const [isAddingDownload, setIsAddingDownload] = useState(false);
   const router = useRouter();
+  const [jobs, setJobs] = useState<Job[]>(mockJobs);
+  const runningJobs = jobs.filter((j) => j.status === "running").length;
+
+  async function handleAddDownload(e: React.FormEvent) {
+    e.preventDefault();
+
+    const typeOfSource = defineTypeOfURL(newMangaUrl);
+
+    if (!typeOfSource) {
+      toast.error("Unsupported URL type");
+      return;
+    }
+
+    setIsAddingDownload(true);
+    const jobId = crypto.randomUUID();
+
+    try {
+      setJobs((prev) => [
+        {
+          id: jobId,
+          manga: "Preparing download...",
+          chapters: "",
+          status: "queued",
+          progress: 0,
+          source: typeOfSource,
+        },
+        ...prev,
+      ]);
+
+      let mangaName: string;
+
+      if (typeOfSource === "mangadex") {
+        const info = getMangaDexInfoFromURL(newMangaUrl);
+        mangaName = info.name;
+      } else if (typeOfSource === "manual") {
+        // TODO: implement manual name resolution
+        mangaName = "Unknown Manga";
+      } else if (typeOfSource === "weebcentral") {
+        // TODO: implement WeebCentral name resolution
+        mangaName = "Unknown Manga";
+      } else {
+        mangaName = "Unknown Manga";
+      }
+
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, manga: mangaName } : j))
+      );
+
+      const res = await fetch("/api/v1/download", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mangaUrl: newMangaUrl,
+          mangaName,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Download failed");
+
+      const blob = await res.blob();
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = `${mangaName}.cbz`;
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId
+            ? {
+                ...j,
+                status: "done",
+                progress: 100,
+                manga: mangaName,
+              }
+            : j
+        )
+      );
+
+      toast.success("Download complete!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Download failed");
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: "failed" } : j))
+      );
+    } finally {
+      setIsAddingDownload(false);
+    }
+  }
 
   useEffect(() => {
     async function checkAuth() {
@@ -317,6 +412,61 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        {/* Add to Queue */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Add to Queue
+            </CardTitle>
+            <CardDescription>
+              Paste a MangaDex, manual, or WeebCentral link to queue a new
+              download.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={handleAddDownload}
+              className="flex flex-col sm:flex-row gap-3 sm:items-end"
+            >
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="manga-url">Manga / chapter URL</Label>
+                <Input
+                  id="manga-url"
+                  type="url"
+                  placeholder="https://mangadex.org/title/..."
+                  value={newMangaUrl}
+                  onChange={(e) => setNewMangaUrl(e.target.value)}
+                  required
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={isAddingDownload || !newMangaUrl.trim()}
+              >
+                {isAddingDownload ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Add to queue
+              </Button>
+            </form>
+            <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-muted-foreground">
+              <span>Supported sources:</span>
+              {Object.values(sourceConfig).map(({ label, className }) => (
+                <Badge
+                  key={label}
+                  variant="outline"
+                  className={`text-xs ${className}`}
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Download Queue */}
         <Card>
           <CardHeader>
@@ -329,28 +479,37 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {mockJobs.length === 0 ? (
+            {jobs.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
                 No active jobs.
               </p>
             ) : (
               <div className="space-y-3">
-                {mockJobs.map((job) => (
+                {jobs.map((job) => (
                   <div
                     key={job.id}
                     className="flex items-center gap-4 rounded-lg border p-3"
                   >
                     <Archive className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {job.manga}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium truncate">
+                          {job.manga}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] px-1.5 py-0 shrink-0 ${sourceConfig[job.source].className}`}
+                        >
+                          {sourceConfig[job.source].label}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
                         {job.chapters}
+                        {job.detail ? ` · ${job.detail}` : ""}
                       </p>
                     </div>
                     {job.status === "running" && (
-                      <div className="w-24 hidden sm:block">
+                      <div className="w-28 hidden sm:block">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                           <div
                             className="h-full bg-primary rounded-full transition-all"
@@ -358,7 +517,7 @@ export default function DashboardPage() {
                           />
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 text-right">
-                          {job.progress}%
+                          {job.progress}%{job.eta ? ` · ${job.eta}` : ""}
                         </p>
                       </div>
                     )}

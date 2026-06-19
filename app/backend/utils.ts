@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export type URLType = "mangadex" | "weebcentral" | "lastation" | null;
+export type URLType = "mangadex" | "weebcentral" | "manual" | null;
 
 const MANGADEX_UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,6 +39,13 @@ export function validateMangaURL(url: string): boolean {
 }
 
 export function defineTypeOfURL(url: string): URLType {
+  const baseUrls = [
+    "https://scans.lastation.us/manga/",
+    "https://official.lowee.us/manga/",
+    "https://hot.planeptune.us/manga/",
+    "https://scans-hot.planeptune.us/manga/",
+  ];
+
   try {
     const parsed = new URL(url);
 
@@ -49,11 +56,14 @@ export function defineTypeOfURL(url: string): URLType {
       case "weebcentral.com":
         return "weebcentral";
 
-      case "scans.lastation.us":
-        return "lastation";
+      default: {
+        // check if URL starts with any base URL
+        const isManual = baseUrls.some((base) => url.startsWith(base));
 
-      default:
+        if (isManual) return "manual";
+
         return null;
+      }
     }
   } catch {
     return null;
