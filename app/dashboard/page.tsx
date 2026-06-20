@@ -55,6 +55,7 @@ import { useRouter } from "next/navigation";
 import { defineTypeOfURL } from "@/app/backend/utils";
 
 import { getMangaDexInfoFromURL } from "@/app/backend/utils";
+
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
 type Source = "mangadex" | "manual" | "weebcentral";
@@ -179,16 +180,50 @@ export default function DashboardPage() {
       ]);
 
       let mangaName: string;
+      // What actually gets sent to /api/v1/download. Defaults to the
+      // pasted URL/source, but weebcentral overrides both once resolved
+      // down to a real mirror URL, since the download itself runs through
+      // the same pipeline as `manual`.
+      let downloadUrl: string = newMangaUrl;
+      let downloadSource: Source = typeOfSource;
 
       if (typeOfSource === "mangadex") {
         const info = getMangaDexInfoFromURL(newMangaUrl);
         mangaName = info.name;
       } else if (typeOfSource === "manual") {
-        // TODO: implement manual name resolution
-        mangaName = "Unknown Manga";
+        const resolveRes = await fetch("/api/v1/resolveManual", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mangaUrl: newMangaUrl }),
+        });
+
+        if (!resolveRes.ok) {
+          throw new Error("Could not resolve manga from URL");
+        }
+
+        const { mangaName: resolvedName } = await resolveRes.json();
+        mangaName = resolvedName;
       } else if (typeOfSource === "weebcentral") {
-        // TODO: implement WeebCentral name resolution
-        mangaName = "Unknown Manga";
+        // WeebCentral isn't a separate download mechanism — it's just a
+        // discovery path. The server scrapes one chapter page (Playwright
+        // can't run in the browser) to find a real mirror image URL, then
+        // resolves it exactly like `manual` does.
+        const resolveRes = await fetch("/api/v1/resolveWeebcentral", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mangaUrl: newMangaUrl }),
+        });
+
+        if (!resolveRes.ok) {
+          throw new Error("Could not resolve manga from URL");
+        }
+
+        const { mangaName: resolvedName, downloadUrl: resolvedUrl } =
+          await resolveRes.json();
+        mangaName = resolvedName;
+
+        downloadUrl = resolvedUrl;
+        downloadSource = "manual";
       } else {
         mangaName = "Unknown Manga";
       }
@@ -203,8 +238,9 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          mangaUrl: newMangaUrl,
+          mangaUrl: downloadUrl,
           mangaName,
+          source: downloadSource,
         }),
       });
 

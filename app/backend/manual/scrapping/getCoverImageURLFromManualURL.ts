@@ -24,6 +24,7 @@ export async function findCoverImageURL(
       const response = await axios.get(candidateUrl, {
         validateStatus: () => true,
         responseType: "stream",
+        timeout: 8000,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
@@ -33,11 +34,16 @@ export async function findCoverImageURL(
         },
       });
 
+      console.log(`[findCoverImageURL] ${candidateUrl} -> ${response.status}`);
+
       if (response.status === 200) {
         return candidateUrl;
       }
     } catch (err) {
-      console.error(err);
+      console.error(
+        `[findCoverImageURL] ${candidateUrl} -> ERROR`,
+        err instanceof Error ? err.message : err
+      );
     }
   }
 
