@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -54,13 +54,12 @@ import { supabase } from "../backend/supabaseFunctions/supabaseClient";
 import { useRouter } from "next/navigation";
 import { defineTypeOfURL } from "@/app/backend/utils";
 
-import { getMangaDexInfoFromURL } from "@/app/backend/utils";
-
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
 type Source = "mangadex" | "manual" | "weebcentral";
 
 interface Job {
+  /** Trigger.dev run id — used as the polling key. */
   id: string;
   manga: string;
   chapters: string;
@@ -133,9 +132,31 @@ const jobStatusConfig = {
   done: "text-green-600 bg-green-50 border-green-200",
   failed: "text-destructive bg-destructive/10 border-destructive/20",
 };
-const mockJobs: Job[] = [];
 
-// get session to check if user is logged in
+// API response shape from /api/v1/jobs/:runId
+interface JobStatusResponse {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress: number;
+  mangaName?: string | null;
+  chapterCount?: number | null;
+  downloadUrl?: string | null;
+  error?: string | null;
+}
+
+// Map API status → local Job.status
+function apiToLocalStatus(s: JobStatusResponse["status"]): Job["status"] {
+  switch (s) {
+    case "pending":
+      return "queued";
+    case "running":
+      return "running";
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+  }
+}
 
 export default function DashboardPage() {
   const [search, setSearch] = useState("");
@@ -150,8 +171,100 @@ export default function DashboardPage() {
   const [newMangaUrl, setNewMangaUrl] = useState("");
   const [isAddingDownload, setIsAddingDownload] = useState(false);
   const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>(mockJobs);
-  const runningJobs = jobs.filter((j) => j.status === "running").length;
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const runningJobs = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
+
+  // Track polling intervals so we can clean them up.
+  const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+
+  /** Stop polling for a job. */
+  const stopPolling = useCallback((jobId: string) => {
+    const interval = pollersRef.current.get(jobId);
+    if (interval) {
+      clearInterval(interval);
+      pollersRef.current.delete(jobId);
+    }
+  }, []);
+
+  /** Poll a job until it completes or fails. */
+  const pollJob = useCallback(
+    (jobId: string) => {
+      // Don't double-poll.
+      if (pollersRef.current.has(jobId)) return;
+
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/v1/jobs/${jobId}`);
+          if (!res.ok) {
+            // 404 / 401 — stop polling, mark failed.
+            stopPolling(jobId);
+            setJobs((prev) =>
+              prev.map((j) =>
+                j.id === jobId ? { ...j, status: "failed", detail: "run not found" } : j
+              )
+            );
+            return;
+          }
+
+          const data: JobStatusResponse = await res.json();
+          const localStatus = apiToLocalStatus(data.status);
+
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.id === jobId
+                ? {
+                    ...j,
+                    status: localStatus,
+                    progress: data.progress,
+                    manga: data.mangaName ?? j.manga,
+                    chapters: data.chapterCount ? `${data.chapterCount} chapters` : j.chapters,
+                    detail:
+                      localStatus === "running"
+                        ? `${data.progress}%`
+                        : localStatus === "failed"
+                          ? data.error ?? "failed"
+                          : undefined,
+                  }
+                : j
+            )
+          );
+
+          if (data.status === "completed") {
+            stopPolling(jobId);
+
+            // Trigger the browser download from the signed URL.
+            if (data.downloadUrl) {
+              const a = document.createElement("a");
+              a.href = data.downloadUrl;
+              a.download = `${data.mangaName ?? "manga"}.cbz`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            }
+
+            toast.success("Download complete!");
+          } else if (data.status === "failed") {
+            stopPolling(jobId);
+            toast.error(`Download failed: ${data.error ?? "unknown error"}`);
+          }
+        } catch {
+          // Network blip — keep polling, the interval will retry.
+        }
+      }, 2500);
+
+      pollersRef.current.set(jobId, interval);
+    },
+    [stopPolling]
+  );
+
+  // Clean up all pollers on unmount.
+  useEffect(() => {
+    const pollers = pollersRef.current;
+    return () => {
+      pollers.forEach((interval) => clearInterval(interval));
+      pollers.clear();
+    };
+  }, []);
 
   async function handleAddDownload(e: React.FormEvent) {
     e.preventDefault();
@@ -164,12 +277,14 @@ export default function DashboardPage() {
     }
 
     setIsAddingDownload(true);
-    const jobId = crypto.randomUUID();
+    // Temporary id until the API returns the real runId.
+    const tempId = `temp-${crypto.randomUUID()}`;
 
     try {
+      // Optimistically add a queued job.
       setJobs((prev) => [
         {
-          id: jobId,
+          id: tempId,
           manga: "Preparing download...",
           chapters: "",
           status: "queued",
@@ -179,105 +294,43 @@ export default function DashboardPage() {
         ...prev,
       ]);
 
-      let mangaName: string;
-      // What actually gets sent to /api/v1/download. Defaults to the
-      // pasted URL/source, but weebcentral overrides both once resolved
-      // down to a real mirror URL, since the download itself runs through
-      // the same pipeline as `manual`.
-      let downloadUrl: string = newMangaUrl;
-      let downloadSource: Source = typeOfSource;
-
-      if (typeOfSource === "mangadex") {
-        const info = getMangaDexInfoFromURL(newMangaUrl);
-        mangaName = info.name;
-      } else if (typeOfSource === "manual") {
-        const resolveRes = await fetch("/api/v1/resolveManual", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mangaUrl: newMangaUrl }),
-        });
-
-        if (!resolveRes.ok) {
-          throw new Error("Could not resolve manga from URL");
-        }
-
-        const { mangaName: resolvedName } = await resolveRes.json();
-        mangaName = resolvedName;
-      } else if (typeOfSource === "weebcentral") {
-        // WeebCentral isn't a separate download mechanism — it's just a
-        // discovery path. The server scrapes one chapter page (Playwright
-        // can't run in the browser) to find a real mirror image URL, then
-        // resolves it exactly like `manual` does.
-        const resolveRes = await fetch("/api/v1/resolveWeebcentral", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mangaUrl: newMangaUrl }),
-        });
-
-        if (!resolveRes.ok) {
-          throw new Error("Could not resolve manga from URL");
-        }
-
-        const { mangaName: resolvedName, downloadUrl: resolvedUrl } =
-          await resolveRes.json();
-        mangaName = resolvedName;
-
-        downloadUrl = resolvedUrl;
-        downloadSource = "manual";
-      } else {
-        mangaName = "Unknown Manga";
-      }
-
-      setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, manga: mangaName } : j))
-      );
-
+      // Enqueue — the server starts the Trigger task and returns the
+      // run id immediately. No more 5-minute waits.
       const res = await fetch("/api/v1/download", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mangaUrl: downloadUrl,
-          mangaName,
-          source: downloadSource,
+          url: newMangaUrl,
+          source: typeOfSource,
         }),
       });
 
-      if (!res.ok) throw new Error("Download failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Failed to start download");
+      }
 
-      const blob = await res.blob();
+      const { runId } = await res.json();
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-
-      a.href = url;
-      a.download = `${mangaName}.cbz`;
-      document.body.appendChild(a);
-      a.click();
-
-      a.remove();
-      URL.revokeObjectURL(url);
-
+      // Swap the temp id for the real run id and start polling.
       setJobs((prev) =>
         prev.map((j) =>
-          j.id === jobId
-            ? {
-                ...j,
-                status: "done",
-                progress: 100,
-                manga: mangaName,
-              }
+          j.id === tempId
+            ? { ...j, id: runId, status: "running", detail: "starting..." }
             : j
         )
       );
+      pollJob(runId);
 
-      toast.success("Download complete!");
+      // Clear the input — the job is now tracked in the queue.
+      setNewMangaUrl("");
     } catch (err) {
       console.error(err);
-      toast.error("Download failed");
+      toast.error(err instanceof Error ? err.message : "Failed to start download");
       setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, status: "failed" } : j))
+        prev.map((j) =>
+          j.id === tempId ? { ...j, status: "failed", detail: String(err) } : j
+        )
       );
     } finally {
       setIsAddingDownload(false);

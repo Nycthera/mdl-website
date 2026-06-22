@@ -1,5 +1,10 @@
 // app/backend/downloadLogicForManualAndWeebcentral/download.ts
-import { Readable, type Transform } from "node:stream";
+//
+// UPDATED: added `buildMangaCbzBuffer` (and a progress callback) so the
+// Trigger.dev task can produce a Buffer to upload to Supabase Storage
+// instead of streaming back over HTTP. The original `buildMangaCbzStream`
+// is preserved unchanged for backwards compatibility.
+import { Readable, Writable, type Transform } from "node:stream";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -202,16 +207,8 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Builds a .cbz stream that mirrors create_cbz_for_all() in src/cbz.py:
- *  - each page lands under `chapter_<label>/<original filename>` inside the zip,
- *    e.g. chapter_0001/0001-001.png — matching the on-disk folder layout
- *    (manga folder > chapter_NNNN folders > page images) exactly, just zipped.
- *  - the manga name is the .cbz filename, not a folder inside the archive
- *  - chapter labels are zero-padded (chapter_0001, not chapter_1) unless an
- *    explicit `folder` override is given
- *  - files inside each chapter folder are written in sorted order, mirroring
- *    `files = sorted(files)` in cbz.py's os.walk loop
- *  - downloads run with bounded concurrency + retries, mirroring downloader.py
+ * Builds a .cbz stream that mirrors create_cbz_for_all() in src/cbz.py.
+ * (Unchanged from the original — kept for backwards compatibility.)
  */
 export function buildMangaCbzStream(
   options: BuildMangaCbzOptions
@@ -251,6 +248,69 @@ export function buildMangaCbzStream(
   })();
 
   return Readable.toWeb(archive) as ReadableStream;
+}
+
+/**
+ * Builds a .cbz as an in-memory Buffer. Used by the Trigger.dev task —
+ * there's no HTTP client to stream to, so we collect the archive output
+ * into a Buffer and upload it to Supabase Storage.
+ *
+ * Same chapter/folder naming, same concurrency, same retry logic as
+ * `buildMangaCbzStream` — only the sink differs.
+ *
+ * `onProgress` fires after each image is appended, with (done, total)
+ * counts. The task forwards this to Trigger metadata so the polling
+ * endpoint can read live progress.
+ */
+export async function buildMangaCbzBuffer(
+  options: BuildMangaCbzOptions & {
+    onProgress?: (done: number, total: number) => void;
+  }
+): Promise<Buffer> {
+  const { chapters, maxWorkers = 10, onProgress } = options;
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+
+  // Collect the archive's output into a Buffer.
+  const chunks: Buffer[] = [];
+  const sink = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      chunks.push(chunk);
+      callback();
+    },
+  });
+  archive.pipe(sink);
+
+  const jobs = chapters.flatMap((chapter) => {
+    const folder =
+      chapter.folder ?? `chapter_${normalizeChapterLabel(chapter.label)}`;
+    const named = chapter.imageUrls.map((url) => ({
+      url,
+      filename: filenameFromUrl(url),
+    }));
+    named.sort((a, b) => a.filename.localeCompare(b.filename));
+    return named.map(({ url, filename }) => ({
+      url,
+      arcname: `${folder}/${filename}`,
+    }));
+  });
+
+  let done = 0;
+  await mapWithConcurrency(jobs, maxWorkers, async (job) => {
+    const buffer = await fetchImageBuffer(job.url);
+    archive.append(buffer, { name: job.arcname });
+    done++;
+    onProgress?.(done, jobs.length);
+  });
+
+  await archive.finalize();
+
+  // Wait for the sink to flush everything.
+  await new Promise<void>((resolve, reject) => {
+    sink.on("finish", resolve);
+    sink.on("error", reject);
+  });
+
+  return Buffer.concat(chunks);
 }
 
 /** Mirrors `f"{safe_base_name}.cbz"` in create_cbz_for_all() */
