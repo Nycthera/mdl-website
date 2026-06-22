@@ -51,16 +51,16 @@ Dashboard polls /api/v1/jobs/:runId every 2.5s
 
 ## Files in this bundle
 
-| File | Status | What it does |
-|------|--------|--------------|
-| `trigger/download-manga.ts` | NEW | The Trigger.dev task. Resolve → upsert manga → write chapters/pages → build CBZ → upload → write download_history. |
-| `app/api/v1/download/route.ts` | REWRITTEN | Just auths + enqueues the task + returns `{ runId }`. |
-| `app/api/v1/jobs/[id]/route.ts` | NEW | Polling endpoint. Calls `runs.retrieve(runId)`, mints signed Storage URL when COMPLETED. |
-| `app/backend/downloadLogicForManualAndWeebcentral/download.ts` | UPDATED | Added `buildMangaCbzBuffer` (Buffer sink + progress callback). Original `buildMangaCbzStream` unchanged. |
-| `app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts` | REWRITTEN | `axios` + `cheerio` instead of Playwright. |
-| `app/dashboard/page.tsx` | UPDATED | `handleAddDownload` enqueues + polls by runId. Pollers cleaned up on unmount. |
-| `supabase/migrations/20260622000000_trigger_migration.sql` | NEW | Adds `storage_path` to `download_history`, unique constraint on `manga(source, source_manga_id)`, `cbz` storage bucket + RLS. **No new tables.** |
-| `.env.example` | NEW | All env vars you need. |
+| File                                                           | Status    | What it does                                                                                                                                     |
+| -------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `trigger/download-manga.ts`                                    | NEW       | The Trigger.dev task. Resolve → upsert manga → write chapters/pages → build CBZ → upload → write download_history.                               |
+| `app/api/v1/download/route.ts`                                 | REWRITTEN | Just auths + enqueues the task + returns `{ runId }`.                                                                                            |
+| `app/api/v1/jobs/[id]/route.ts`                                | NEW       | Polling endpoint. Calls `runs.retrieve(runId)`, mints signed Storage URL when COMPLETED.                                                         |
+| `app/backend/downloadLogicForManualAndWeebcentral/download.ts` | UPDATED   | Added `buildMangaCbzBuffer` (Buffer sink + progress callback). Original `buildMangaCbzStream` unchanged.                                         |
+| `app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts` | REWRITTEN | `axios` + `cheerio` instead of Playwright.                                                                                                       |
+| `app/dashboard/page.tsx`                                       | UPDATED   | `handleAddDownload` enqueues + polls by runId. Pollers cleaned up on unmount.                                                                    |
+| `supabase/migrations/20260622000000_trigger_migration.sql`     | NEW       | Adds `storage_path` to `download_history`, unique constraint on `manga(source, source_manga_id)`, `cbz` storage bucket + RLS. **No new tables.** |
+| `.env.example`                                                 | NEW       | All env vars you need.                                                                                                                           |
 
 ## Install
 
@@ -104,14 +104,14 @@ npx trigger.dev@latest dev
 
 ## Env vars — where they need to live
 
-| Var | Vercel | Trigger.dev dashboard | `.env.local` |
-|-----|:------:|:---------------------:|:------------:|
-| `NEXT_PUBLIC_SUPABASE_URL` | ✓ | ✓ | ✓ |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | ✓ | — | ✓ |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✓ | ✓ | ✓ |
-| `TRIGGER_SECRET_KEY` | ✓ | ✓ (auto) | ✓ |
-| `TRIGGER_API_URL` | ✓ | ✓ (auto) | ✓ |
-| `NEXT_PUBLIC_TRIGGER_PUBLIC_KEY` | ✓ | — | ✓ |
+| Var                                    | Vercel | Trigger.dev dashboard | `.env.local` |
+| -------------------------------------- | :----: | :-------------------: | :----------: |
+| `NEXT_PUBLIC_SUPABASE_URL`             |   ✓    |           ✓           |      ✓       |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |   ✓    |           —           |      ✓       |
+| `SUPABASE_SERVICE_ROLE_KEY`            |   ✓    |           ✓           |      ✓       |
+| `TRIGGER_SECRET_KEY`                   |   ✓    |       ✓ (auto)        |      ✓       |
+| `TRIGGER_API_URL`                      |   ✓    |       ✓ (auto)        |      ✓       |
+| `NEXT_PUBLIC_TRIGGER_PUBLIC_KEY`       |   ✓    |           —           |      ✓       |
 
 **Critical:** `SUPABASE_SERVICE_ROLE_KEY` must be set on the Trigger.dev
 dashboard (Environment Variables), not just Vercel — the task runs in
@@ -158,10 +158,12 @@ intentional, since the task needs to write metadata for any user.
    // Replace getMangaLibrary with something like:
    const { data } = await supabase
      .from("manga")
-     .select(`
+     .select(
+       `
        id, title, slug, cover_url, chapter_count, created_at,
        chapters:chapters(id, chapter_number)
-     `)
+     `
+     )
      .order("title", { ascending: true });
    ```
 
@@ -174,7 +176,7 @@ intentional, since the task needs to write metadata for any user.
    moves to pure JS rendering and none of these appear in the initial
    HTML, you'll get zero images. Check the Trigger task logs — if
    `imageUrls` is empty for a WeebCentral URL, fall back to running
-   Playwright *inside* the Trigger task (Trigger supports custom
+   Playwright _inside_ the Trigger task (Trigger supports custom
    Dockerfiles with system deps).
 
 6. **Old `/api/v1/resolveWeebcentral` and `/api/v1/resolveManual` routes**
@@ -184,9 +186,9 @@ intentional, since the task needs to write metadata for any user.
    Playwright dep, delete that route too.
 
 7. **Idempotency on re-download** — the task deletes existing `chapters`
-   + `pages` for a manga before re-inserting (handles mirror URL changes
-   cleanly). The `manga` row is upserted. `download_history` is
-   append-only — re-downloads add new rows with a fresh `downloaded_at`.
+   - `pages` for a manga before re-inserting (handles mirror URL changes
+     cleanly). The `manga` row is upserted. `download_history` is
+     append-only — re-downloads add new rows with a fresh `downloaded_at`.
 
 ## Testing
 
@@ -195,6 +197,7 @@ end to end. The Trigger.dev dashboard shows live logs + metadata, so
 you can watch progress there in parallel with your UI.
 
 After the first successful download, check Supabase:
+
 - `select * from manga where title = '<your manga>';`
 - `select count(*) from chapters where manga_id = '<id>';`
 - `select count(*) from pages where chapter_id in (select id from chapters where manga_id = '<id>');`

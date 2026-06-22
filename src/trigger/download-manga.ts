@@ -29,10 +29,7 @@ import {
 import { gatherAllUrlsFromSample } from "@/app/backend/manual/scrapping/getAllImagesFromManual";
 import { makeResultsIntoArrayFormatForDownloadFunction } from "@/app/backend/mangadex/makeResultsIntoArrayFormatForDownloadFunction";
 import { fetchManualImages } from "@/app/backend/weebcentral/scrapping/getImageURLFromInputURL";
-import {
-  getMangaDexInfoFromURL,
-  returnGlobFromURL,
-} from "@/app/backend/utils";
+import { getMangaDexInfoFromURL, returnGlobFromURL } from "@/app/backend/utils";
 
 export type DownloadSource = "mangadex" | "manual" | "weebcentral";
 
@@ -102,7 +99,10 @@ export const downloadMangaTask = task({
     // ────────────────────────────────────────────────────────────────
     // 1. Resolve URL → { mangaName, chapters[] }
     // ────────────────────────────────────────────────────────────────
-    logger.info("Resolving source", { source: payload.source, url: payload.url });
+    logger.info("Resolving source", {
+      source: payload.source,
+      url: payload.url,
+    });
 
     let mangaName: string;
     let slug: string;
@@ -115,7 +115,9 @@ export const downloadMangaTask = task({
       mangaName = info.name;
       slug = info.id; // mangadex slug is the UUID; use id for both
       sourceMangaId = info.id;
-      chapters = await makeResultsIntoArrayFormatForDownloadFunction(payload.url);
+      chapters = await makeResultsIntoArrayFormatForDownloadFunction(
+        payload.url
+      );
       // First page of first chapter as a cheap cover proxy.
       coverUrl = chapters[0]?.imageUrls[0] ?? null;
     } else if (payload.source === "manual") {
@@ -179,7 +181,9 @@ export const downloadMangaTask = task({
       .single();
 
     if (mangaErr || !upsertedManga) {
-      throw new Error(`Failed to upsert manga: ${mangaErr?.message ?? "unknown"}`);
+      throw new Error(
+        `Failed to upsert manga: ${mangaErr?.message ?? "unknown"}`
+      );
     }
     const mangaId = upsertedManga.id;
     logger.info("Manga row ready", { mangaId });
@@ -304,14 +308,16 @@ export const downloadMangaTask = task({
       }
 
       const now = new Date().toISOString();
-      const historyRows = chapterRows.map((c: { id: string; source_chapter_id: string }) => ({
-        user_id: payload.userId,
-        manga_id: mangaId,
-        chapter_id: c.id,
-        file_size: buffer.length,
-        downloaded_at: now,
-        storage_path: storagePath,
-      }));
+      const historyRows = chapterRows.map(
+        (c: { id: string; source_chapter_id: string }) => ({
+          user_id: payload.userId,
+          manga_id: mangaId,
+          chapter_id: c.id,
+          file_size: buffer.length,
+          downloaded_at: now,
+          storage_path: storagePath,
+        })
+      );
 
       const { error: historyErr } = await db
         .from("download_history")

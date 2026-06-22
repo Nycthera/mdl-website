@@ -41,7 +41,9 @@ interface RunOutput {
 }
 
 /** Map Trigger's run.status to the local status string the frontend expects. */
-function mapStatus(triggerStatus: string): "pending" | "running" | "completed" | "failed" {
+function mapStatus(
+  triggerStatus: string
+): "pending" | "running" | "completed" | "failed" {
   switch (triggerStatus) {
     case "COMPLETED":
       return "completed";

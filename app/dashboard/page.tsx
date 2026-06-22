@@ -172,10 +172,14 @@ export default function DashboardPage() {
   const [isAddingDownload, setIsAddingDownload] = useState(false);
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const runningJobs = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
+  const runningJobs = jobs.filter(
+    (j) => j.status === "running" || j.status === "queued"
+  ).length;
 
   // Track polling intervals so we can clean them up.
-  const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map()
+  );
 
   /** Stop polling for a job. */
   const stopPolling = useCallback((jobId: string) => {
@@ -200,7 +204,9 @@ export default function DashboardPage() {
             stopPolling(jobId);
             setJobs((prev) =>
               prev.map((j) =>
-                j.id === jobId ? { ...j, status: "failed", detail: "run not found" } : j
+                j.id === jobId
+                  ? { ...j, status: "failed", detail: "run not found" }
+                  : j
               )
             );
             return;
@@ -217,12 +223,14 @@ export default function DashboardPage() {
                     status: localStatus,
                     progress: data.progress,
                     manga: data.mangaName ?? j.manga,
-                    chapters: data.chapterCount ? `${data.chapterCount} chapters` : j.chapters,
+                    chapters: data.chapterCount
+                      ? `${data.chapterCount} chapters`
+                      : j.chapters,
                     detail:
                       localStatus === "running"
                         ? `${data.progress}%`
                         : localStatus === "failed"
-                          ? data.error ?? "failed"
+                          ? (data.error ?? "failed")
                           : undefined,
                   }
                 : j
@@ -326,7 +334,9 @@ export default function DashboardPage() {
       setNewMangaUrl("");
     } catch (err) {
       console.error(err);
-      toast.error(err instanceof Error ? err.message : "Failed to start download");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to start download"
+      );
       setJobs((prev) =>
         prev.map((j) =>
           j.id === tempId ? { ...j, status: "failed", detail: String(err) } : j
