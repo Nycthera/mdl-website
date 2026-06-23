@@ -18,10 +18,19 @@ uploads the `.cbz` to Supabase Storage, and writes one `download_history`
 row per chapter included. The dashboard polls `/api/v1/jobs/:runId`,
 which reads live status from Trigger via `runs.retrieve()`.
 
-WeebCentral scraping was also rewritten — **Playwright is gone**,
-replaced with `axios` + `cheerio`. Playwright can't run on Vercel
-(serverless can't spawn browser child processes or fit the 300 MB
-binary), and it's overkill for what WeebCentral needs anyway.
+WeebCentral scraping was rewritten to `axios` + `cheerio` in the original
+migration, on the assumption that WeebCentral served page images in the
+initial HTML. **That assumption was wrong** — WeebCentral's chapter pages
+inject page images via client-side JS after load, so the cheerio version
+returned zero images for every WeebCentral URL. This has been reverted:
+the scraper now uses Playwright again (`chromium.launch()`, navigate,
+scroll to trigger lazy-load, then read `img.src` after hydration — the
+same approach the pre-Trigger version used). The difference from before
+is _where_ it runs: Playwright now executes inside the Trigger.dev task,
+not a Vercel function, via the `playwright` build extension added to
+`trigger.config.ts`. Trigger's runtime has no 300 MB function-size
+ceiling and can spawn the browser child process, so the constraint that
+originally forced the move away from Playwright doesn't apply there.
 
 ## Where data lands
 
@@ -51,16 +60,16 @@ Dashboard polls /api/v1/jobs/:runId every 2.5s
 
 ## Files in this bundle
 
-| File                                                           | Status    | What it does                                                                                                                                     |
-| -------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `trigger/download-manga.ts`                                    | NEW       | The Trigger.dev task. Resolve → upsert manga → write chapters/pages → build CBZ → upload → write download_history.                               |
-| `app/api/v1/download/route.ts`                                 | REWRITTEN | Just auths + enqueues the task + returns `{ runId }`.                                                                                            |
-| `app/api/v1/jobs/[id]/route.ts`                                | NEW       | Polling endpoint. Calls `runs.retrieve(runId)`, mints signed Storage URL when COMPLETED.                                                         |
-| `app/backend/downloadLogicForManualAndWeebcentral/download.ts` | UPDATED   | Added `buildMangaCbzBuffer` (Buffer sink + progress callback). Original `buildMangaCbzStream` unchanged.                                         |
-| `app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts` | REWRITTEN | `axios` + `cheerio` instead of Playwright.                                                                                                       |
-| `app/dashboard/page.tsx`                                       | UPDATED   | `handleAddDownload` enqueues + polls by runId. Pollers cleaned up on unmount.                                                                    |
-| `supabase/migrations/20260622000000_trigger_migration.sql`     | NEW       | Adds `storage_path` to `download_history`, unique constraint on `manga(source, source_manga_id)`, `cbz` storage bucket + RLS. **No new tables.** |
-| `.env.example`                                                 | NEW       | All env vars you need.                                                                                                                           |
+| File                                                           | Status    | What it does                                                                                                                                             |
+| -------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger/download-manga.ts`                                    | NEW       | The Trigger.dev task. Resolve → upsert manga → write chapters/pages → build CBZ → upload → write download_history.                                       |
+| `app/api/v1/download/route.ts`                                 | REWRITTEN | Just auths + enqueues the task + returns `{ runId }`.                                                                                                    |
+| `app/api/v1/jobs/[id]/route.ts`                                | NEW       | Polling endpoint. Calls `runs.retrieve(runId)`, mints signed Storage URL when COMPLETED.                                                                 |
+| `app/backend/downloadLogicForManualAndWeebcentral/download.ts` | UPDATED   | Added `buildMangaCbzBuffer` (Buffer sink + progress callback). Original `buildMangaCbzStream` unchanged.                                                 |
+| `app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts` | REVERTED  | Back to Playwright (cheerio version returned zero images — see "What changed" above). Runs inside the Trigger task via the `playwright` build extension. |
+| `app/dashboard/page.tsx`                                       | UPDATED   | `handleAddDownload` enqueues + polls by runId. Pollers cleaned up on unmount.                                                                            |
+| `supabase/migrations/20260622000000_trigger_migration.sql`     | NEW       | Adds `storage_path` to `download_history`, unique constraint on `manga(source, source_manga_id)`, `cbz` storage bucket + RLS. **No new tables.**         |
+| `.env.example`                                                 | NEW       | All env vars you need.                                                                                                                                   |
 
 ## Install
 
@@ -171,19 +180,18 @@ intentional, since the task needs to write metadata for any user.
    your first `deploy`. It creates `trigger.config.ts` and links your
    local project to the Trigger.dev cloud project.
 
-5. **WeebCentral lazy-loading** — the cheerio scraper checks `src`,
-   `data-src`, `data-lazy-src`, and `data-original`. If WeebCentral
-   moves to pure JS rendering and none of these appear in the initial
-   HTML, you'll get zero images. Check the Trigger task logs — if
-   `imageUrls` is empty for a WeebCentral URL, fall back to running
-   Playwright _inside_ the Trigger task (Trigger supports custom
-   Dockerfiles with system deps).
+5. **WeebCentral now needs the `playwright` build extension deployed** —
+   `trigger.config.ts` installs headless Chromium into the Trigger image
+   at deploy time. If you `npx trigger.dev@latest deploy` and the
+   extension was just added, expect a longer build (downloading the
+   browser). Watch the build logs for the Chromium install step; if it's
+   missing, the task will throw "Failed to launch Chromium" at runtime.
 
 6. **Old `/api/v1/resolveWeebcentral` and `/api/v1/resolveManual` routes**
    — no longer called by the dashboard (resolution now happens inside
-   the task). You can leave them in place or delete them.
-   `resolveWeebcentral` still uses Playwright, so if you delete the
-   Playwright dep, delete that route too.
+   the task). You can leave them in place or delete them. Both the route
+   and the task-side scraper use Playwright, so don't remove the
+   `playwright` dependency — it's required, not legacy.
 
 7. **Idempotency on re-download** — the task deletes existing `chapters`
    - `pages` for a manga before re-inserting (handles mirror URL changes

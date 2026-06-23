@@ -1,17 +1,30 @@
 // app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts
 //
-// REWRITTEN: Playwright is gone. WeebCentral's chapter pages serve the
-// image URLs in the initial HTML (or in easily-reached data attributes),
-// so a plain axios + cheerio scrape is enough — and crucially, this now
-// runs anywhere (Vercel Lambda, Trigger task, local dev) without shipping
-// a 300 MB browser binary.
+// FIX: WeebCentral's /chapters/<id> page ships with ZERO <img> tags in its
+// initial HTML — verified directly against the live site. The page chrome
+// (nav, login modal, page-number list, reading preferences) is server
+// rendered, but the actual page images are injected into the DOM by
+// client-side JS *after* load. A plain axios + cheerio fetch (the previous
+// version of this file) only ever sees the pre-JS HTML, so `imageUrls` is
+// always empty and the caller's "WeebCentral: no images found" check fires
+// on every single run.
 //
-// If WeebCentral ever moves fully behind JS lazy-loading and the initial
-// HTML no longer contains the image URLs, fall back to running Playwright
-// *inside* the Trigger task (Trigger supports custom Dockerfiles with
-// system deps). But try this first — it almost certainly works.
-import axios from "axios";
-import * as cheerio from "cheerio";
+// This restores the Playwright-based approach (same as the working
+// trigger.dev version of this file) — load the page in a real headless
+// browser, scroll to trigger any lazy-loading, wait for the JS to settle,
+// then read `<img>` elements out of the *live* DOM.
+//
+// IMPORTANT DEPLOYMENT NOTE: `playwright` must be a `dependency` (not just
+// a `devDependency`) so it's installed in production, and if this runs
+// inside a Trigger.dev task you need the Playwright build extension so the
+// browser binaries are present in the deployed image. See trigger.config.ts.
+import {
+  chromium,
+  firefox,
+  webkit,
+  type Browser,
+  type BrowserType,
+} from "playwright";
 
 const TITLE_PATTERN = /\/manga\/([^/]+)\//i;
 
@@ -28,67 +41,113 @@ function extractTitleFromImageUrls(imageUrls: string[]): string {
   return "Unknown_Title";
 }
 
-const REQUEST_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-    "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  Referer: "https://weebcentral.com/",
-};
+// Try a few engines in case one isn't installed/available in the runtime.
+const LAUNCH_ORDER: [string, BrowserType][] = [
+  ["chromium", chromium],
+  ["webkit", webkit],
+  ["firefox", firefox],
+];
+
+async function launchAnyBrowser(): Promise<{ browser: Browser; name: string }> {
+  let lastError: unknown;
+  for (const [name, engine] of LAUNCH_ORDER) {
+    try {
+      const browser = await engine.launch({ headless: true });
+      return { browser, name };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw new Error(
+    `Failed to launch any Playwright browser: ${String(lastError)}`
+  );
+}
+
+// Lazy-loading attributes some image galleries use instead of (or in
+// addition to) `src`. Keeping this list means we still pick up images even
+// if WeebCentral changes how it promotes lazy images to `src`.
+const ATTRS = ["src", "data-src", "data-lazy-src", "data-original"] as const;
 
 /**
- * Fetches the WeebCentral chapter page HTML and pulls out every image URL
- * that points at the scans mirrors (the `/manga/<slug>/NNNN-NNN.png`
- * pattern used by lastation.us / planeptune.us / lowee.us).
- *
- * Checks `src`, `data-src`, `data-lazy-src`, and `data-original` to cover
- * the common lazy-loading attribute names — so we catch images even when
- * the page hasn't run its JS to promote them to `src`.
+ * Loads the WeebCentral chapter page in a real (headless) browser and pulls
+ * out every image URL that points at the scans mirrors (the
+ * `/manga/<slug>/NNNN-NNN.png` pattern used by lastation.us / planeptune.us
+ * / lowee.us). Real browser rendering is required because WeebCentral
+ * injects the page images via client-side JS after the initial HTML loads.
  */
 export async function fetchManualImages(url: string): Promise<ScrapeResult> {
-  let html: string;
+  const { browser } = await launchAnyBrowser();
+
   try {
-    const res = await axios.get<string>(url, {
-      headers: REQUEST_HEADERS,
-      timeout: 30000,
-      responseType: "text",
-      maxRedirects: 5,
+    const page = await browser.newPage({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
     });
-    html = res.data;
-  } catch {
-    return { imageUrls: [], title: "Unknown_Title" };
-  }
 
-  const $ = cheerio.load(html);
+    let response;
+    try {
+      response = await page.goto(url, { waitUntil: "load", timeout: 45000 });
+    } catch {
+      return { imageUrls: [], title: "Unknown_Title" };
+    }
 
-  // Candidate attributes that lazy-loaded image galleries use.
-  const ATTRS = ["src", "data-src", "data-lazy-src", "data-original"];
-  const seen = new Set<string>();
-  const imageUrls: string[] = [];
+    if (!response || response.status() !== 200) {
+      return { imageUrls: [], title: "Unknown_Title" };
+    }
 
-  $("img").each((_, el) => {
-    for (const attr of ATTRS) {
-      const raw = $(el).attr(attr);
-      if (!raw) continue;
-      try {
-        const resolved = new URL(raw, url).toString();
-        // Same filter the old Playwright version used — only keep the
-        // scans-mirror PNG URLs that the download pipeline knows how to
-        // group into chapters.
-        if (resolved.includes("/manga/") && resolved.endsWith(".png")) {
-          if (!seen.has(resolved)) {
-            seen.add(resolved);
-            imageUrls.push(resolved);
-          }
+    // Wait for at least one manga page image to actually appear in the DOM
+    // rather than relying purely on fixed timeouts. Falls through to the
+    // scroll/timeout pass below regardless (some chapters lazy-load pages
+    // further down the strip that won't be present yet).
+    try {
+      await page.waitForSelector(
+        'img[src*="/manga/"], img[data-src*="/manga/"]',
+        {
+          timeout: 15000,
         }
-      } catch {
-        // ignore unparseable URLs
+      );
+    } catch {
+      // No luck within the timeout — keep going, the scroll loop below is
+      // still worth attempting in case images load slowly.
+    }
+
+    // Scroll through the long-strip reader so lazy-loaded images further
+    // down the page get triggered.
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(0, 1200);
+      await page.waitForTimeout(700);
+    }
+
+    // Let any in-flight lazy-loads settle.
+    await page.waitForTimeout(4000);
+
+    const imgElements = await page.$$("img");
+    const seen = new Set<string>();
+    const imageUrls: string[] = [];
+
+    for (const img of imgElements) {
+      for (const attr of ATTRS) {
+        const raw = await img.getAttribute(attr);
+        if (!raw) continue;
+        try {
+          const resolved = new URL(raw, url).toString();
+          if (resolved.includes("/manga/") && resolved.endsWith(".png")) {
+            if (!seen.has(resolved)) {
+              seen.add(resolved);
+              imageUrls.push(resolved);
+            }
+          }
+        } catch {
+          // ignore unparseable URLs
+        }
+        break; // first matching attribute wins for this element
       }
     }
-  });
 
-  const title = extractTitleFromImageUrls(imageUrls);
-  return { imageUrls, title };
+    const title = extractTitleFromImageUrls(imageUrls);
+    return { imageUrls, title };
+  } finally {
+    await browser.close();
+  }
 }

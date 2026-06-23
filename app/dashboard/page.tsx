@@ -276,7 +276,7 @@ export default function DashboardPage() {
 
   async function handleAddDownload(e: React.FormEvent) {
     e.preventDefault();
-
+    console.log("should be working... download should prep");
     const typeOfSource = defineTypeOfURL(newMangaUrl);
 
     if (!typeOfSource) {

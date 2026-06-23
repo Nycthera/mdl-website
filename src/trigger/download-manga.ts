@@ -131,8 +131,11 @@ export const downloadMangaTask = task({
       mangaName = titleFromSlug(slug);
       coverUrl = pageUrls[0] ?? null;
     } else {
-      // weebcentral — cheerio-based scrape (no Playwright). Returns image
-      // URLs that match the manual mirror pattern.
+      // weebcentral — Playwright-based scrape. WeebCentral injects page
+      // images via client-side JS, so this renders the chapter page in
+      // headless Chromium (via the `playwright` build extension — see
+      // trigger.config.ts) and reads img.src after the page hydrates.
+      // Returns image URLs that match the manual mirror pattern.
       const { imageUrls, title } = await fetchManualImages(payload.url);
       if (imageUrls.length === 0) {
         throw new Error("WeebCentral: no images found");
