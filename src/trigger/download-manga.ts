@@ -331,6 +331,9 @@ export const downloadMangaTask = task({
     // ────────────────────────────────────────────────────────────────
     metadata.set("stage", "saving_metadata");
     metadata.set("statusMessage", "Saving chapter list...");
+    // Track the highest real-world chapter number we insert below — used
+    // to populate manga_data.latest_chapter_local after this block.
+    let maxChapterNumber = 0;
     await (async () => {
       // 3a. Find existing chapter ids for this manga, then delete their
       // pages + the chapters themselves.
@@ -353,7 +356,11 @@ export const downloadMangaTask = task({
         // wrong for split chapters like 49.1/49.2. parseFloat preserves it
         // while still stripping the zero-padding for display.
         const parsed = parseFloat(chapter.label);
-        const chapterNumber = String(Number.isFinite(parsed) ? parsed : i + 1);
+        const chapterNumberValue = Number.isFinite(parsed) ? parsed : i + 1;
+        const chapterNumber = String(chapterNumberValue);
+        if (chapterNumberValue > maxChapterNumber) {
+          maxChapterNumber = chapterNumberValue;
+        }
 
         const { data: chapterRow, error: chapterErr } = await db
           .from("chapters")
@@ -395,7 +402,43 @@ export const downloadMangaTask = task({
     logger.info("Metadata written", { mangaId, chapterCount: chapters.length });
 
     // ────────────────────────────────────────────────────────────────
-    // 4. Write download_history — one row per chapter in this download.
+    // 4. Upsert manga_data — powers the dashboard's "Library" table and
+    //    "Up to date / Behind" stats. This is a separate, legacy-shaped
+    //    table (keyed by manga_name, not manga_id) that predates the
+    //    normalized manga/chapters/pages schema above, so it's written
+    //    independently here rather than joined from it.
+    //
+    //    LIMITATION: for non-MangaDex sources (manual scan mirrors,
+    //    WeebCentral) there's no MangaDex lookup wired up yet to know
+    //    what MangaDex's *actual* latest chapter is, so
+    //    latest_chapter_from_mangadex is set equal to latest_chapter_local
+    //    here — i.e. "up to date" by definition at download time. A
+    //    future "check for updates" job could look the title up on
+    //    MangaDex independently and refresh this column without
+    //    re-downloading. For MangaDex downloads this is NOT a limitation:
+    //    step 1 above already resolved MangaDex's full current chapter
+    //    list, so the two numbers are genuinely equal right now and will
+    //    only diverge once MangaDex publishes new chapters after this run.
+    // ────────────────────────────────────────────────────────────────
+    metadata.set("statusMessage", "Updating library status...");
+    const { error: mangaDataErr } = await db.from("manga_data").upsert(
+      {
+        manga_name: mangaName,
+        date_last_checked: Math.floor(Date.now() / 1000),
+        latest_chapter_local: maxChapterNumber,
+        latest_chapter_from_mangadex: maxChapterNumber,
+      },
+      { onConflict: "manga_name" }
+    );
+
+    if (mangaDataErr) {
+      logger.error("Failed to upsert manga_data", {
+        error: mangaDataErr.message,
+      });
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // 5. Write download_history — one row per chapter in this download.
     //
     //    METADATA-ONLY MODE: no CBZ is built, nothing is uploaded to
     //    Supabase Storage, so the rows carry no storage_path / file_size.
