@@ -134,14 +134,22 @@ const jobStatusConfig = {
 };
 
 // API response shape from /api/v1/jobs/:runId
+//
+// STREAMING MODE: when the run is COMPLETED, the backend returns a
+// `streamUrl` pointing at /api/v1/download/stream?mangaId=...  The
+// frontend navigates an <a> element there and the browser downloads
+// the CBZ as a real-time stream (no Supabase Storage involved).
 interface JobStatusResponse {
   id: string;
   status: "pending" | "running" | "completed" | "failed";
   progress: number;
   mangaName?: string | null;
+  mangaId?: string | null;
   chapterCount?: number | null;
-  downloadUrl?: string | null;
+  streamUrl?: string | null;
   error?: string | null;
+  stage?: string | null;
+  statusMessage?: string | null;
 }
 
 // Map API status → local Job.status
@@ -228,7 +236,7 @@ export default function DashboardPage() {
                       : j.chapters,
                     detail:
                       localStatus === "running"
-                        ? `${data.progress}%`
+                        ? data.statusMessage ?? `${data.progress}%`
                         : localStatus === "failed"
                           ? (data.error ?? "failed")
                           : undefined,
@@ -240,17 +248,21 @@ export default function DashboardPage() {
           if (data.status === "completed") {
             stopPolling(jobId);
 
-            // Trigger the browser download from the signed URL.
-            if (data.downloadUrl) {
+            // STREAMING MODE: navigate to the streaming endpoint so the
+            // browser starts downloading the CBZ as it's being built.
+            // The route reads page URLs from the DB (written by the
+            // Trigger task) and pipes the archive to the response — no
+            // Supabase Storage, no signed URLs, just a direct stream.
+            if (data.streamUrl) {
               const a = document.createElement("a");
-              a.href = data.downloadUrl;
+              a.href = data.streamUrl;
               a.download = `${data.mangaName ?? "manga"}.cbz`;
               document.body.appendChild(a);
               a.click();
               a.remove();
             }
 
-            toast.success("Download complete!");
+            toast.success("Download starting...");
           } else if (data.status === "failed") {
             stopPolling(jobId);
             toast.error(`Download failed: ${data.error ?? "unknown error"}`);

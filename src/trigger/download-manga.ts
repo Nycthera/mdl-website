@@ -6,14 +6,19 @@
  * and returns the run id; this task does all the slow work in Trigger's
  * runtime (no Vercel timeout ceiling).
  *
- * Schema this task writes to (matching the user's existing Supabase design):
+ * METADATA-ONLY MODE — no CBZ file is built and nothing is uploaded to
+ * Supabase Storage.  The task only resolves the source, then writes
+ * catalog rows into the existing normalized schema:
  *
  *   manga              — upserted, idempotent on (source, source_manga_id)
  *   chapters           — one row per chapter, FK → manga.id
- *   pages              — one row per page, FK → chapters.id
- *   download_history   — one row per chapter included in this CBZ download,
- *                        all sharing the same storage_path
- *   storage: cbz bucket — cbz/<user_id>/<run_id>.cbz
+ *   pages              — one row per page (image URL only), FK → chapters.id
+ *   download_history   — one row per chapter, no storage_path / file_size
+ *
+ * Because no image bytes are downloaded, the task finishes in seconds
+ * (previously it hung for hours trying to fetch 1000+ images without
+ * the required Referer/User-Agent headers, which the scan-mirror CDNs
+ * reject with 403/404).
  *
  * Progress is published via `metadata.set("progress", ...)` so the
  * polling endpoint can read it back through `runs.retrieve()`.
@@ -22,14 +27,45 @@ import { task, logger, metadata } from "@trigger.dev/sdk/v3";
 import { createClient } from "@supabase/supabase-js";
 
 import {
-  buildMangaCbzBuffer,
   groupUrlsByChapter,
   type MangaChapterInput,
 } from "@/app/backend/downloadLogicForManualAndWeebcentral/download";
 import { gatherAllUrlsFromSample } from "@/app/backend/manual/scrapping/getAllImagesFromManual";
 import { makeResultsIntoArrayFormatForDownloadFunction } from "@/app/backend/mangadex/makeResultsIntoArrayFormatForDownloadFunction";
-import { fetchManualImages } from "@/app/backend/weebcentral/scrapping/getImageURLFromInputURL";
+import {
+  fetchManualImages,
+  fetchChapterImageUrls,
+} from "@/app/backend/weebcentral/scrapping/getImageURLFromInputURL";
+import {
+  isWeebCentralSeriesUrl,
+  getWeebCentralSeriesChapters,
+  getWeebCentralSeriesTitle,
+  discoverSeriesUrlFromChapterPage,
+} from "@/app/backend/weebcentral/scrapping/getSeriesChapterList";
 import { getMangaDexInfoFromURL, returnGlobFromURL } from "@/app/backend/utils";
+
+/** Bounded-concurrency map — same minimal pattern used elsewhere in this
+ *  codebase (e.g. mangadex chapter resolution). Runs `fn` over `items`
+ *  with at most `limit` in flight at once. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  );
+  return results;
+}
 
 export type DownloadSource = "mangadex" | "manual" | "weebcentral";
 
@@ -92,8 +128,15 @@ export const downloadMangaTask = task({
   // Long manga can take a while; allow up to 1 hour. Trigger lets you go
   // much higher than Vercel's 300s ceiling.
   maxDuration: 3600,
-  retry: { maxAttempts: 2, factor: 2, minTimeoutInMs: 10_000 },
-  run: async (payload: DownloadPayload, { ctx }) => {
+  // NOTE: every network call inside this task already has its own
+  // timeout + retry loop (mangaDexFetch, fetchImageBuffer, checkUrl).
+  // Retrying the *whole task* on top of that means a failure near the
+  // end of a long download (e.g. one image that never recovers) throws
+  // away hours of completed work and starts the entire resolve+download
+  // from scratch — which is what made runs look like they "never stop."
+  // One attempt is enough; the inner retry logic does the real work.
+  retry: { maxAttempts: 1 },
+  run: async (payload: DownloadPayload) => {
     const db = supabaseAdmin();
 
     // ────────────────────────────────────────────────────────────────
@@ -103,6 +146,10 @@ export const downloadMangaTask = task({
       source: payload.source,
       url: payload.url,
     });
+
+    metadata.set("stage", "resolving");
+    metadata.set("statusMessage", "Looking up manga details...");
+    metadata.set("progress", 0);
 
     let mangaName: string;
     let slug: string;
@@ -116,11 +163,18 @@ export const downloadMangaTask = task({
       slug = info.id; // mangadex slug is the UUID; use id for both
       sourceMangaId = info.id;
       chapters = await makeResultsIntoArrayFormatForDownloadFunction(
-        payload.url
+        payload.url,
+        (done, total) => {
+          metadata.set(
+            "statusMessage",
+            `Resolving chapters (${done}/${total})...`
+          );
+        }
       );
       // First page of first chapter as a cheap cover proxy.
       coverUrl = chapters[0]?.imageUrls[0] ?? null;
     } else if (payload.source === "manual") {
+      metadata.set("statusMessage", "Scanning mirror for chapters...");
       const pageUrls = await gatherAllUrlsFromSample(payload.url);
       if (pageUrls.length === 0) {
         throw new Error("No chapters found for this manga");
@@ -131,21 +185,96 @@ export const downloadMangaTask = task({
       mangaName = titleFromSlug(slug);
       coverUrl = pageUrls[0] ?? null;
     } else {
-      // weebcentral — Playwright-based scrape. WeebCentral injects page
-      // images via client-side JS, so this renders the chapter page in
-      // headless Chromium (via the `playwright` build extension — see
-      // trigger.config.ts) and reads img.src after the page hydrates.
-      // Returns image URLs that match the manual mirror pattern.
-      const { imageUrls, title } = await fetchManualImages(payload.url);
-      if (imageUrls.length === 0) {
-        throw new Error("WeebCentral: no images found");
+      // weebcentral — fetches `<chapter_url>/images?reading_style=long_strip`
+      // over plain HTTP (server-rendered, no JS needed) to get the first
+      // image, then guesses & checks the rest of the chapter's pages
+      // against that same scan-mirror CDN. See getImageURLFromInputURL.ts
+      // for the full writeup — this no longer needs a headless browser.
+      //
+      // THE FIX for "only downloads a single chapter": this used to call
+      // fetchManualImages() on whatever one chapter URL the user pasted
+      // and stop there. Now we try to discover the SERIES that chapter
+      // belongs to (or use it directly if the user pasted a series URL),
+      // fetch the full chapter list, and resolve every chapter's pages —
+      // same as the mangadex/manual flows already did.
+      metadata.set("statusMessage", "Looking up series...");
+
+      const seriesUrl = isWeebCentralSeriesUrl(payload.url)
+        ? payload.url
+        : await discoverSeriesUrlFromChapterPage(payload.url);
+
+      if (seriesUrl) {
+        const seriesChapters = await getWeebCentralSeriesChapters(seriesUrl);
+
+        if (seriesChapters.length === 0) {
+          throw new Error(
+            "WeebCentral: could not find any chapters for this series"
+          );
+        }
+
+        metadata.set(
+          "statusMessage",
+          `Found ${seriesChapters.length} chapters. Resolving pages...`
+        );
+
+        const allImageUrls: string[] = [];
+        let resolvedCount = 0;
+
+        // Bounded concurrency: each chapter itself fans out into several
+        // mirror probes, so 4 chapters at once is plenty without hammering
+        // the mirrors. One bad/missing chapter just contributes zero pages
+        // instead of failing the whole series.
+        await mapWithConcurrency(seriesChapters, 4, async (ch) => {
+          try {
+            const urls = await fetchChapterImageUrls(ch.url);
+            allImageUrls.push(...urls);
+          } catch (err) {
+            logger.warn("Failed to resolve a chapter, skipping it", {
+              chapter: ch.name,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            resolvedCount++;
+            metadata.set(
+              "statusMessage",
+              `Resolving chapters (${resolvedCount}/${seriesChapters.length})...`
+            );
+          }
+        });
+
+        if (allImageUrls.length === 0) {
+          throw new Error("WeebCentral: no images found across any chapter");
+        }
+
+        chapters = groupUrlsByChapter(allImageUrls);
+        const inferredSlug = slugFromImageUrl(allImageUrls[0]);
+        slug = inferredSlug ?? "unknown-manga";
+        sourceMangaId = slug;
+        const seriesTitle = await getWeebCentralSeriesTitle(seriesUrl);
+        mangaName = seriesTitle ?? titleFromSlug(slug);
+        coverUrl = allImageUrls[0] ?? null;
+      } else {
+        // Couldn't find a series link on the chapter page — fall back to
+        // downloading just that one chapter rather than failing outright.
+        logger.warn(
+          "Could not discover a series link from the chapter page; " +
+            "downloading only the single chapter that was provided."
+        );
+        metadata.set(
+          "statusMessage",
+          "Couldn't find the series — downloading just this chapter..."
+        );
+        const { imageUrls, title } = await fetchManualImages(payload.url);
+        if (imageUrls.length === 0) {
+          throw new Error("WeebCentral: no images found");
+        }
+        chapters = groupUrlsByChapter(imageUrls);
+        const inferredSlug = slugFromImageUrl(imageUrls[0]);
+        slug = inferredSlug ?? title;
+        sourceMangaId = slug;
+        mangaName = title !== "Unknown_Title" ? title : titleFromSlug(slug);
+        coverUrl = imageUrls[0] ?? null;
       }
-      chapters = groupUrlsByChapter(imageUrls);
-      const inferredSlug = slugFromImageUrl(imageUrls[0]);
-      slug = inferredSlug ?? title;
-      sourceMangaId = slug;
-      mangaName = title !== "Unknown_Title" ? title : titleFromSlug(slug);
-      coverUrl = imageUrls[0] ?? null;
     }
 
     logger.info("Resolved", {
@@ -200,6 +329,8 @@ export const downloadMangaTask = task({
     // guarantee. The page URLs may have changed (mirror moves), so a full
     // refresh is the safer call.
     // ────────────────────────────────────────────────────────────────
+    metadata.set("stage", "saving_metadata");
+    metadata.set("statusMessage", "Saving chapter list...");
     await (async () => {
       // 3a. Find existing chapter ids for this manga, then delete their
       // pages + the chapters themselves.
@@ -218,7 +349,11 @@ export const downloadMangaTask = task({
       // capture each chapter's id for its pages.
       for (let i = 0; i < chapters.length; i++) {
         const chapter = chapters[i];
-        const chapterNumber = String(parseInt(chapter.label, 10) || i + 1);
+        // FIX: parseInt("0049.1") truncates to 49, losing the decimal —
+        // wrong for split chapters like 49.1/49.2. parseFloat preserves it
+        // while still stripping the zero-padding for display.
+        const parsed = parseFloat(chapter.label);
+        const chapterNumber = String(Number.isFinite(parsed) ? parsed : i + 1);
 
         const { data: chapterRow, error: chapterErr } = await db
           .from("chapters")
@@ -260,41 +395,18 @@ export const downloadMangaTask = task({
     logger.info("Metadata written", { mangaId, chapterCount: chapters.length });
 
     // ────────────────────────────────────────────────────────────────
-    // 4. Download all images + zip into a CBZ buffer
+    // 4. Write download_history — one row per chapter in this download.
+    //
+    //    METADATA-ONLY MODE: no CBZ is built, nothing is uploaded to
+    //    Supabase Storage, so the rows carry no storage_path / file_size.
+    //    The previous image-download + storage-upload steps were removed
+    //    because (a) `fetchImageBuffer` was sending no Referer/User-Agent
+    //    headers, so every mirror CDN request returned 403/404 and the
+    //    task hung for hours in retry loops, and (b) the user explicitly
+    //    asked to stop uploading CBZ files to Supabase Storage.
     // ────────────────────────────────────────────────────────────────
-    const buffer = await buildMangaCbzBuffer({
-      mangaName,
-      chapters,
-      maxWorkers: 2,
-      onProgress: (done, total) => {
-        const pct = Math.round((done / total) * 100);
-        metadata.set("progress", pct);
-      },
-    });
-
-    logger.info("CBZ built", { sizeBytes: buffer.length });
-
-    // ────────────────────────────────────────────────────────────────
-    // 5. Upload to Supabase Storage
-    // ────────────────────────────────────────────────────────────────
-    const storagePath = `${payload.userId}/${ctx.run.id}.cbz`;
-
-    {
-      const { error } = await db.storage
-        .from("cbz")
-        .upload(storagePath, buffer, {
-          contentType: "application/vnd.comicbook+zip",
-          upsert: true,
-        });
-      if (error) throw error;
-    }
-
-    logger.info("Uploaded", { storagePath });
-
-    // ────────────────────────────────────────────────────────────────
-    // 6. Write download_history — one row per chapter in this download.
-    //    All rows share the same storage_path (the manga-level CBZ).
-    // ────────────────────────────────────────────────────────────────
+    metadata.set("stage", "finalizing");
+    metadata.set("statusMessage", "Recording download history...");
     await (async () => {
       // Re-fetch the chapter ids we just inserted so download_history
       // rows can FK to them.
@@ -316,9 +428,9 @@ export const downloadMangaTask = task({
           user_id: payload.userId,
           manga_id: mangaId,
           chapter_id: c.id,
-          file_size: buffer.length,
           downloaded_at: now,
-          storage_path: storagePath,
+          // Intentionally omitted: file_size + storage_path.  No CBZ
+          // is produced in metadata-only mode.
         })
       );
 
@@ -334,15 +446,15 @@ export const downloadMangaTask = task({
     })();
 
     metadata.set("progress", 100);
+    metadata.set("stage", "completed");
+    metadata.set("statusMessage", "Done!");
 
-    // Return value is exposed via runs.retrieve().output — the polling
-    // endpoint uses storagePath to mint a signed download URL.
+    // Return value is exposed via runs.retrieve().output.  No storagePath
+    // is returned — the polling endpoint no longer mints signed URLs.
     return {
-      storagePath,
       mangaId,
       mangaName,
       chapterCount: chapters.length,
-      fileSize: buffer.length,
     };
   },
 });

@@ -1,5 +1,4 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
-import { playwright } from "@trigger.dev/build/extensions/playwright";
 
 export default defineConfig({
   project: "proj_shayrpiwadsohrihzqdu",
@@ -20,7 +19,10 @@ export default defineConfig({
     },
   },
   dirs: ["./src/trigger"],
-  build: {
-    external: ["playwright-core", "playwright", "chromium-bidi"],
-  },
+  // NOTE: the playwright build extension (and the chromium/firefox/webkit
+  // binaries it pulled into the deployed image) has been removed. The
+  // WeebCentral scraper no longer needs a headless browser — it fetches
+  // the chapter's server-rendered `/images?reading_style=long_strip`
+  // endpoint over plain HTTP instead. This also meaningfully shrinks and
+  // speeds up the Trigger.dev build.
 });

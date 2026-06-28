@@ -20,11 +20,14 @@ export function validateMangaURL(url: string): boolean {
       );
     }
 
-    // WeebCentral
+    // WeebCentral — either a single chapter (we'll auto-discover its
+    // series) or a series URL directly.
     if (parsed.hostname === "weebcentral.com") {
       const parts = parsed.pathname.split("/").filter(Boolean);
 
-      return parts.length >= 2 && parts[0] === "chapters";
+      return (
+        parts.length >= 2 && (parts[0] === "chapters" || parts[0] === "series")
+      );
     }
 
     // Lastation

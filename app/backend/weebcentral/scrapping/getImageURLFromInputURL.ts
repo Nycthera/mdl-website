@@ -1,32 +1,31 @@
 // app/backend/weebcentral/scrapping/getImageURLFromInputURL.ts
 //
-// FIX: WeebCentral's /chapters/<id> page ships with ZERO <img> tags in its
-// initial HTML — verified directly against the live site. The page chrome
-// (nav, login modal, page-number list, reading preferences) is server
-// rendered, but the actual page images are injected into the DOM by
-// client-side JS *after* load. A plain axios + cheerio fetch (the previous
-// version of this file) only ever sees the pre-JS HTML, so `imageUrls` is
-// always empty and the caller's "WeebCentral: no images found" check fires
-// on every single run.
+// Per-CHAPTER image resolution for WeebCentral. Fetches
+// `<chapter_url>/images?reading_style=long_strip` — a server-rendered
+// endpoint that already contains every page's <img src> in the initial
+// HTML, confirmed against the user's Python reference implementation's
+// `get_chapter_images()`. No headless browser needed.
 //
-// This restores the Playwright-based approach (same as the working
-// trigger.dev version of this file) — load the page in a real headless
-// browser, scroll to trigger any lazy-loading, wait for the JS to settle,
-// then read `<img>` elements out of the *live* DOM.
+// We only trust the FIRST image found on that page as an anchor (manga
+// slug + chapter number + which scan-mirror it lives on), then hand off to
+// `probeChapterPages` (shared with the "manual" source) to guess-and-check
+// the rest of that chapter's pages directly against the mirror, rather
+// than trusting every link WeebCentral's page happens to render.
 //
-// IMPORTANT DEPLOYMENT NOTE: `playwright` must be a `dependency` (not just
-// a `devDependency`) so it's installed in production, and if this runs
-// inside a Trigger.dev task you need the Playwright build extension so the
-// browser binaries are present in the deployed image. See trigger.config.ts.
+// For resolving an entire SERIES (all chapters), see
+// getSeriesChapterList.ts — this file only ever handles one chapter at a
+// time.
+import * as cheerio from "cheerio";
+import { fetchWeebCentralHtml } from "@/app/backend/weebcentral/scrapping/weebcentralHttp";
 import {
-  chromium,
-  firefox,
-  webkit,
-  type Browser,
-  type BrowserType,
-} from "playwright";
+  checkMirrorUrl,
+  mirrorBaseFromUrl,
+  probeChapterPages,
+} from "@/app/backend/manual/scrapping/mirrorProbe";
 
 const TITLE_PATTERN = /\/manga\/([^/]+)\//i;
+// e.g. ".../manga/Some-Manga/0049.1-001.png" -> chapter "0049.1", page "001"
+const MIRROR_IMAGE_PATTERN = /\/manga\/[^/]+\/(\d{4}(?:\.\d+)?)-(\d{3})\.png$/i;
 
 export interface ScrapeResult {
   imageUrls: string[];
@@ -41,113 +40,73 @@ function extractTitleFromImageUrls(imageUrls: string[]): string {
   return "Unknown_Title";
 }
 
-// Try a few engines in case one isn't installed/available in the runtime.
-const LAUNCH_ORDER: [string, BrowserType][] = [
-  ["chromium", chromium],
-  ["webkit", webkit],
-  ["firefox", firefox],
-];
+/**
+ * Resolves every page's mirror URL for ONE WeebCentral chapter. Loads
+ * `<chapter_url>/images?reading_style=long_strip` (plain HTTP), grabs the
+ * first scan-mirror image URL it finds, and uses that single URL to anchor
+ * a guess-and-check pass over the rest of the chapter's pages on that same
+ * mirror. Returns an empty array (never throws on "not found") so a
+ * series-wide download can skip one bad chapter without failing the whole
+ * run.
+ */
+export async function fetchChapterImageUrls(
+  chapterUrl: string
+): Promise<string[]> {
+  const imagesUrl = `${chapterUrl.replace(/\/+$/, "")}/images?reading_style=long_strip`;
+  const html = await fetchWeebCentralHtml(imagesUrl);
 
-async function launchAnyBrowser(): Promise<{ browser: Browser; name: string }> {
-  let lastError: unknown;
-  for (const [name, engine] of LAUNCH_ORDER) {
-    try {
-      const browser = await engine.launch({ headless: true });
-      return { browser, name };
-    } catch (e) {
-      lastError = e;
+  const $ = cheerio.load(html);
+  const candidateUrls: string[] = [];
+  $("img").each((_, el) => {
+    const src = $(el).attr("src");
+    if (src && !src.includes("broken_image") && src.startsWith("http")) {
+      candidateUrls.push(src);
+    }
+  });
+
+  // Anchor on the first URL that actually matches the mirror's
+  // <slug>/<chapter>-<page>.png pattern — the page may also contain
+  // unrelated chrome (icons/logos) that happen to start with http.
+  let firstImageUrl: string | null = null;
+  let mangaSlug = "";
+  let chapterStr = "";
+  let firstPageNum = 1;
+
+  for (const candidate of candidateUrls) {
+    const match = candidate.match(MIRROR_IMAGE_PATTERN);
+    if (match) {
+      firstImageUrl = candidate;
+      chapterStr = match[1];
+      firstPageNum = parseInt(match[2], 10) || 1;
+      const slugMatch = candidate.match(TITLE_PATTERN);
+      mangaSlug = slugMatch ? slugMatch[1] : "";
+      break;
     }
   }
-  throw new Error(
-    `Failed to launch any Playwright browser: ${String(lastError)}`
+
+  if (!firstImageUrl || !mangaSlug) return [];
+
+  // Double-check the anchor image is actually reachable before trusting it
+  // as the basis for guessing the rest of the chapter.
+  const reachable = await checkMirrorUrl(firstImageUrl);
+  if (!reachable) return [];
+
+  const stickyBase = mirrorBaseFromUrl(firstImageUrl);
+  const { urls: restUrls } = await probeChapterPages(
+    mangaSlug,
+    chapterStr,
+    firstPageNum + 1,
+    stickyBase,
+    100
   );
+
+  return [firstImageUrl, ...restUrls];
 }
 
-// Lazy-loading attributes some image galleries use instead of (or in
-// addition to) `src`. Keeping this list means we still pick up images even
-// if WeebCentral changes how it promotes lazy images to `src`.
-const ATTRS = ["src", "data-src", "data-lazy-src", "data-original"] as const;
-
-/**
- * Loads the WeebCentral chapter page in a real (headless) browser and pulls
- * out every image URL that points at the scans mirrors (the
- * `/manga/<slug>/NNNN-NNN.png` pattern used by lastation.us / planeptune.us
- * / lowee.us). Real browser rendering is required because WeebCentral
- * injects the page images via client-side JS after the initial HTML loads.
- */
+/** Single-chapter entry point (back-compat / fallback when a series link
+ *  can't be discovered from a bare chapter URL — see download-manga.ts). */
 export async function fetchManualImages(url: string): Promise<ScrapeResult> {
-  const { browser } = await launchAnyBrowser();
-
-  try {
-    const page = await browser.newPage({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    });
-
-    let response;
-    try {
-      response = await page.goto(url, { waitUntil: "load", timeout: 45000 });
-    } catch {
-      return { imageUrls: [], title: "Unknown_Title" };
-    }
-
-    if (!response || response.status() !== 200) {
-      return { imageUrls: [], title: "Unknown_Title" };
-    }
-
-    // Wait for at least one manga page image to actually appear in the DOM
-    // rather than relying purely on fixed timeouts. Falls through to the
-    // scroll/timeout pass below regardless (some chapters lazy-load pages
-    // further down the strip that won't be present yet).
-    try {
-      await page.waitForSelector(
-        'img[src*="/manga/"], img[data-src*="/manga/"]',
-        {
-          timeout: 15000,
-        }
-      );
-    } catch {
-      // No luck within the timeout — keep going, the scroll loop below is
-      // still worth attempting in case images load slowly.
-    }
-
-    // Scroll through the long-strip reader so lazy-loaded images further
-    // down the page get triggered.
-    for (let i = 0; i < 20; i++) {
-      await page.mouse.wheel(0, 1200);
-      await page.waitForTimeout(700);
-    }
-
-    // Let any in-flight lazy-loads settle.
-    await page.waitForTimeout(4000);
-
-    const imgElements = await page.$$("img");
-    const seen = new Set<string>();
-    const imageUrls: string[] = [];
-
-    for (const img of imgElements) {
-      for (const attr of ATTRS) {
-        const raw = await img.getAttribute(attr);
-        if (!raw) continue;
-        try {
-          const resolved = new URL(raw, url).toString();
-          if (resolved.includes("/manga/") && resolved.endsWith(".png")) {
-            if (!seen.has(resolved)) {
-              seen.add(resolved);
-              imageUrls.push(resolved);
-            }
-          }
-        } catch {
-          // ignore unparseable URLs
-        }
-        break; // first matching attribute wins for this element
-      }
-    }
-
-    const title = extractTitleFromImageUrls(imageUrls);
-    return { imageUrls, title };
-  } finally {
-    await browser.close();
-  }
+  const imageUrls = await fetchChapterImageUrls(url);
+  if (imageUrls.length === 0) return { imageUrls: [], title: "Unknown_Title" };
+  return { imageUrls, title: extractTitleFromImageUrls(imageUrls) };
 }

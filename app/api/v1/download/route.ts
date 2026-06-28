@@ -10,7 +10,7 @@
 //   3. returns { runId } immediately
 //
 // The frontend polls /api/v1/jobs/:runId, which calls runs.retrieve()
-// to read live status + the final storagePath.
+// to read live status + progress (metadata-only — no storagePath).
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {

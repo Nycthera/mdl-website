@@ -5,9 +5,14 @@
 //
 // There's no `downloads` table — we read everything from Trigger.dev
 // directly via `runs.retrieve(runId)`. The task publishes progress through
-// `io.updateMetadata({ progress })` and returns `{ storagePath, mangaId,
-// mangaName, chapterCount, fileSize }` as its output, which we use to
-// mint a signed Supabase Storage URL when the run is COMPLETED.
+// `metadata.set({ progress })` and returns `{ mangaId, mangaName,
+// chapterCount }` as its output.
+//
+// STREAMING MODE: no CBZ is uploaded to Supabase Storage.  Instead,
+// when the run is COMPLETED, this endpoint returns a `streamUrl`
+// pointing at /api/v1/download/stream?mangaId=... — the frontend
+// navigates there and the CBZ is built + streamed to the browser in
+// real time.
 //
 // Returns:
 //   {
@@ -15,7 +20,8 @@
 //     status: "pending"|"running"|"completed"|"failed",
 //     progress: 0..100,
 //     mangaName?: string,
-//     downloadUrl?: string,   // signed Supabase Storage URL, only when completed
+//     mangaId?: string,
+//     streamUrl?: string,   // only when completed
 //     error?: string
 //   }
 import { NextResponse } from "next/server";
@@ -30,14 +36,14 @@ interface RunMetadata {
   mangaName?: string;
   slug?: string;
   chapterCount?: number;
+  stage?: string;
+  statusMessage?: string;
 }
 
 interface RunOutput {
-  storagePath?: string;
   mangaId?: string;
   mangaName?: string;
   chapterCount?: number;
-  fileSize?: number;
 }
 
 /** Map Trigger's run.status to the local status string the frontend expects. */
@@ -96,29 +102,16 @@ export async function GET(
 
   const progress = typeof meta.progress === "number" ? meta.progress : 0;
   const mangaName = meta.mangaName ?? output.mangaName ?? null;
+  const mangaId = output.mangaId ?? null;
 
-  // ── Mint a signed download URL when the run is COMPLETED ───────────
-  let downloadUrl: string | null = null;
-  if (status === "completed" && output.storagePath) {
-    // Auth check: confirm the user actually owns this file. The path is
-    // `<userId>/<runId>.cbz`, so the prefix must match their auth.uid().
-    const expectedPrefix = `${user.id}/`;
-    if (!output.storagePath.startsWith(expectedPrefix)) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-
-    const { data, error: signErr } = await supabase.storage
-      .from("cbz")
-      .createSignedUrl(output.storagePath, 3600); // 1 hour
-
-    if (signErr || !data?.signedUrl) {
-      return NextResponse.json(
-        { error: "failed to mint download URL" },
-        { status: 500 }
-      );
-    }
-    downloadUrl = data.signedUrl;
-  }
+  // ── Build the stream URL when the run is COMPLETED ───────────────
+  // The streaming route reads page URLs from the DB (which the Trigger
+  // task just wrote) and pipes the CBZ to the browser in real time.
+  // No Supabase Storage, no signed URLs — just a direct HTTP stream.
+  const streamUrl =
+    status === "completed" && mangaId
+      ? `/api/v1/download/stream?mangaId=${encodeURIComponent(mangaId)}`
+      : null;
 
   // ── Surface an error message if the run failed ─────────────────────
   let error: string | null = null;
@@ -140,9 +133,11 @@ export async function GET(
     status,
     progress,
     mangaName,
+    mangaId,
     chapterCount: meta.chapterCount ?? output.chapterCount ?? null,
-    fileSize: output.fileSize ?? null,
-    downloadUrl,
+    streamUrl,
+    stage: meta.stage ?? null,
+    statusMessage: meta.statusMessage ?? null,
     error,
   });
 }
