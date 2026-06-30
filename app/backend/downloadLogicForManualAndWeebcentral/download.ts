@@ -1,12 +1,16 @@
 // app/backend/downloadLogicForManualAndWeebcentral/download.ts
 //
-// UPDATED: added `buildMangaCbzBuffer` (and a progress callback) so the
-// Trigger.dev task can produce a Buffer to upload to Supabase Storage
-// instead of streaming back over HTTP. The original `buildMangaCbzStream`
-// is preserved unchanged for backwards compatibility.
+// CBZ builder + image fetcher.  Used by the streaming route
+// /api/v1/download/stream which pipes the archive straight to the
+// browser — the Trigger.dev task itself does NOT call into this file
+// (it only writes metadata to the DB).  `buildMangaCbzBuffer` is kept
+// for backwards compatibility / tests; the streaming route uses
+// `buildMangaCbzStream` because it can pipe straight into a Response.
 import { Readable, Writable, type Transform } from "node:stream";
 import { createRequire } from "node:module";
 import path from "node:path";
+
+import { MIRROR_REQUEST_HEADERS } from "@/app/backend/manual/scrapping/mirrorProbe";
 
 const require = createRequire(import.meta.url);
 
@@ -48,17 +52,110 @@ const { ZipArchive } = require("archiver") as {
   ZipArchive: ZipArchiveConstructor;
 };
 
-let nextAllowedRequestTime = 0;
+// ---------------------------------------------------------------------- //
+// Per-host pacing.
+//
+// PREVIOUSLY this was a single global ticket shared by every in-flight
+// request, regardless of `maxWorkers`. That meant raising concurrency did
+// nothing for throughput — every fetch (even to totally unrelated hosts)
+// queued behind the same 250ms gate, capping the whole download at ~4
+// images/sec no matter how many workers were configured.
+//
+// Now pacing is tracked per-hostname, so:
+//   - Official API hosts we must be polite to (mangadex's image server)
+//     still get a sane per-host delay.
+//   - Scan-mirror CDNs (lastation/lowee/planeptune etc.) get little-to-no
+//     artificial delay — they're just static file hosts — so `maxWorkers`
+//     concurrency actually translates into concurrent network throughput.
+// ---------------------------------------------------------------------- //
+const nextAllowedRequestTimeByHost = new Map<string, number>();
 
-async function rateLimit(delayMs = 250) {
+/** Hosts that need a meaningful minimum gap between requests. Everything
+ *  else defaults to a near-zero gap (just enough to avoid a thundering herd). */
+const HOST_DELAYS_MS: Record<string, number> = {
+  "uploads.mangadex.org": 200,
+};
+const DEFAULT_DELAY_MS = 20;
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "unknown";
+  }
+}
+
+async function rateLimit(url: string) {
+  // First: honour any global 429 pause that's currently in effect for
+  // this host.  Without this, the worker would race ahead and fire while
+  // sibling workers are still in their retry-after wait, re-triggering
+  // the 429 storm we're trying to escape.
+  await waitForPauseIfAny(url);
+
+  const host = hostnameOf(url);
+  const delayMs = HOST_DELAYS_MS[host] ?? DEFAULT_DELAY_MS;
+  const nextAllowed = nextAllowedRequestTimeByHost.get(host) ?? 0;
   const now = Date.now();
 
-  if (now < nextAllowedRequestTime) {
-    await new Promise((r) => setTimeout(r, nextAllowedRequestTime - now));
+  if (now < nextAllowed) {
+    await new Promise((r) => setTimeout(r, nextAllowed - now));
   }
 
-  nextAllowedRequestTime = Date.now() + delayMs;
+  nextAllowedRequestTimeByHost.set(host, Date.now() + delayMs);
 }
+
+// ---------------------------------------------------------------------- //
+// Global 429 backoff coordinator.
+//
+// PROBLEM: when 8 concurrent workers all hit a 429 on uploads.mangadex.org
+// simultaneously, each one independently waits 60s and then they ALL fire
+// again at the same instant — guaranteeing another 429.  This is exactly
+// the loop we saw in the Trigger.dev trace: 8 × "429 received. Waiting
+// 60s" → 8 × "429 received. Waiting 60s" → ... forever.
+//
+// FIX: a single shared "paused until" timestamp per host.  When any
+// worker gets a 429, it pushes the host's pause deadline forward.  Every
+// worker checks this deadline (inside rateLimit) before firing, so they
+// all back off together and then resume one at a time, paced by the
+// per-host delay gate above.
+// ---------------------------------------------------------------------- //
+const pausedUntilByHost = new Map<string, number>();
+
+/** Called when a request to `url` returned 429.  Pushes the host's pause
+ *  deadline forward by `retryAfterMs`.  Other workers will see the new
+ *  deadline on their next rateLimit() call and wait. */
+function notifyRateLimited(url: string, retryAfterMs: number) {
+  const host = hostnameOf(url);
+  const now = Date.now();
+  const current = pausedUntilByHost.get(host) ?? 0;
+  // Use Math.max so a stale shorter deadline can't shorten a newer longer
+  // one (e.g. if two workers 429 at slightly different times).
+  pausedUntilByHost.set(host, Math.max(current, now + retryAfterMs));
+  // Also push the per-host pacing gate forward so the first request after
+  // the pause doesn't fire instantly alongside a sibling.
+  nextAllowedRequestTimeByHost.set(
+    host,
+    Math.max(nextAllowedRequestTimeByHost.get(host) ?? 0, now + retryAfterMs)
+  );
+}
+
+/** Checks whether the host is currently paused due to a recent 429, and
+ *  if so, sleeps until the pause expires.  Called from inside rateLimit. */
+async function waitForPauseIfAny(url: string) {
+  const host = hostnameOf(url);
+  const pausedUntil = pausedUntilByHost.get(host) ?? 0;
+  const now = Date.now();
+  if (now < pausedUntil) {
+    await new Promise((r) => setTimeout(r, pausedUntil - now));
+  }
+}
+
+/** Network timeout for a single image request. Without this, a mirror that
+ *  hangs (no response, no error — common with these scan sites) leaves the
+ *  whole Trigger.dev run stuck "Executing" forever, since nothing ever
+ *  rejects the awaited fetch. This is almost certainly why runs were
+ *  appearing to never finish. */
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
 
 /* ---------------------------------------------------------------------- */
 /* Input shape — mirrors urls_to_download: List[Tuple[url, chapter_folder]] */
@@ -137,26 +234,63 @@ function filenameFromUrl(url: string): string {
   }
 }
 
-/** Mirrors the retry loop in download_image() from src/downloader.py */
+/** Mirrors the retry loop in download_image() from src/downloader.py
+ *
+ *  FIX: previously called `fetch(url)` with NO headers.  The scan-mirror
+ *  CDNs (lastation / lowee / planeptune) reject bare requests with
+ *  403/404 — they require a real browser User-Agent + Referer.  This was
+ *  the root cause of the original Trigger.dev hang: every single image
+ *  failed, retried 4× with exponential backoff, and the task sat
+ *  "Executing" for hours until maxDuration killed it.  `checkMirrorUrl`
+ *  in mirrorProbe.ts already sends `MIRROR_REQUEST_HEADERS` and works
+ *  fine; this function now does the same. */
+/** Timestamp-prefixed logger so these lines are easy to spot/grep in the
+ *  `next dev` terminal output, consistent with the [stream ...] logs in
+ *  the route handler. */
+function dlog(step: string, details?: unknown) {
+  const ts = new Date().toISOString().split("T")[1];
+  if (details !== undefined) {
+    console.log(`[cbz ${ts}] ${step}`, details);
+  } else {
+    console.log(`[cbz ${ts}] ${step}`);
+  }
+}
+
 async function fetchImageBuffer(
   url: string,
-  maxRetries = 8,
-  backoffFactorMs = 1000
+  maxRetries = 4,
+  backoffFactorMs = 800
 ): Promise<Buffer> {
   let lastError: unknown;
+  const startedAt = Date.now();
+  dlog("fetch:start", { url });
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await rateLimit(250);
+      await rateLimit(url);
 
-      const response = await fetch(url);
+      const attemptStartedAt = Date.now();
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+        headers: MIRROR_REQUEST_HEADERS,
+      });
+      const attemptMs = Date.now() - attemptStartedAt;
 
       if (response.status === 429) {
         const retryAfter =
           Number(response.headers.get("retry-after")) || attempt * 5;
 
-        console.log(`429 received. Waiting ${retryAfter}s before retrying...`);
+        dlog("fetch:429", { url, attempt, retryAfterSec: retryAfter });
 
+        // Notify all sibling workers that this host is rate-limited so
+        // they pause too — without this, 8 workers each independently
+        // wait 60s and then fire simultaneously, guaranteeing another
+        // 429.  See the comment block above `notifyRateLimited`.
+        notifyRateLimited(url, retryAfter * 1000);
+
+        // Wait out the retry-after ourselves too.  (waitForPauseIfAny
+        // inside rateLimit on the next loop iteration would catch this,
+        // but waiting here keeps the log message honest.)
         await new Promise((r) => setTimeout(r, retryAfter * 1000));
 
         continue;
@@ -166,19 +300,49 @@ async function fetchImageBuffer(
         throw new Error(`HTTP ${response.status}`);
       }
 
-      return Buffer.from(await response.arrayBuffer());
+      const buffer = Buffer.from(await response.arrayBuffer());
+      dlog("fetch:ok", {
+        url,
+        attempt,
+        ms: attemptMs,
+        bytes: buffer.byteLength,
+        totalMs: Date.now() - startedAt,
+      });
+      return buffer;
     } catch (err) {
       lastError = err;
+      dlog("fetch:error", {
+        url,
+        attempt,
+        maxRetries,
+        error: err instanceof Error ? err.message : String(err),
+      });
 
       if (attempt < maxRetries) {
-        const delay = backoffFactorMs * Math.pow(2, attempt - 1);
+        const delay = Math.min(
+          backoffFactorMs * Math.pow(2, attempt - 1),
+          8_000
+        );
 
-        console.log(`Retry ${attempt}/${maxRetries} after ${delay}ms`);
+        dlog("fetch:retrying", {
+          url,
+          attempt,
+          nextAttempt: attempt + 1,
+          delayMs: delay,
+        });
 
         await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
+
+  dlog("fetch:exhausted", {
+    url,
+    maxRetries,
+    totalMs: Date.now() - startedAt,
+    lastError:
+      lastError instanceof Error ? lastError.message : String(lastError),
+  });
 
   throw new Error(
     `Failed to download ${url} after ${maxRetries} attempts: ${String(lastError)}`
@@ -191,18 +355,49 @@ async function mapWithConcurrency<T, R>(
   limit: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
+  dlog("concurrency:start", { totalJobs: items.length, limit });
   const results: R[] = new Array(items.length);
   let next = 0;
-  async function worker() {
+  let completed = 0;
+  let failed = 0;
+  async function worker(workerId: number) {
     for (;;) {
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i]);
+      try {
+        results[i] = await fn(items[i]);
+        completed++;
+        if (completed % 10 === 0 || completed === items.length) {
+          dlog("concurrency:progress", {
+            completed,
+            failed,
+            total: items.length,
+            workerId,
+          });
+        }
+      } catch (err) {
+        failed++;
+        dlog("concurrency:job-failed", {
+          jobIndex: i,
+          workerId,
+          completedSoFar: completed,
+          failedSoFar: failed,
+          total: items.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     }
   }
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, () => worker())
-  );
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(limit, items.length) }, (_, workerId) =>
+        worker(workerId)
+      )
+    );
+  } finally {
+    dlog("concurrency:end", { completed, failed, total: items.length });
+  }
   return results;
 }
 
@@ -214,9 +409,15 @@ export function buildMangaCbzStream(
   options: BuildMangaCbzOptions
 ): ReadableStream {
   const { chapters, maxWorkers = 10 } = options;
-  const archive = new ZipArchive({ zlib: { level: 9 } });
+  // FIX: images (png/jpg/webp) are already compressed — running them
+  // through DEFLATE at max level buys ~1-2% extra size at the cost of a
+  // real CPU-bound compression pass on every single image. `store: true`
+  // skips compression and just packages the bytes, which is what CBZ
+  // tools conventionally do since the payload is images, not text.
+  const archive = new ZipArchive({ store: true });
 
   archive.on("error", (err: Error) => {
+    dlog("archive:error-event", { error: err.message });
     console.error("Archive error:", err);
   });
 
@@ -234,14 +435,29 @@ export function buildMangaCbzStream(
     }));
   });
 
+  dlog("stream:build-start", {
+    chapters: chapters.length,
+    totalJobs: jobs.length,
+    maxWorkers,
+  });
+
   (async () => {
     try {
       await mapWithConcurrency(jobs, maxWorkers, async (job) => {
         const buffer = await fetchImageBuffer(job.url);
         archive.append(buffer, { name: job.arcname });
+        dlog("archive:append", {
+          arcname: job.arcname,
+          bytes: buffer.byteLength,
+        });
       });
+      dlog("stream:finalizing", { totalJobs: jobs.length });
       await archive.finalize();
+      dlog("stream:finalized", { totalJobs: jobs.length });
     } catch (err) {
+      dlog("stream:build-failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       console.error("Failed to build CBZ:", err);
       archive.destroy(err instanceof Error ? err : new Error(String(err)));
     }
@@ -264,11 +480,23 @@ export function buildMangaCbzStream(
  */
 export async function buildMangaCbzBuffer(
   options: BuildMangaCbzOptions & {
-    onProgress?: (done: number, total: number) => void;
+    onProgress?: (done: number, total: number, currentFile?: string) => void;
+    /** Fires once all images are downloaded, right before we package them
+     *  into the archive — the one previously-invisible gap between
+     *  "100% downloaded" and the function actually returning. */
+    onFinalizing?: () => void;
   }
 ): Promise<Buffer> {
-  const { chapters, maxWorkers = 10, onProgress } = options;
-  const archive = new ZipArchive({ zlib: { level: 9 } });
+  const { chapters, maxWorkers = 10, onProgress, onFinalizing } = options;
+  // FIX: images (png/jpg/webp) are already compressed — running them
+  // through DEFLATE at max level buys ~1-2% extra size at the cost of a
+  // real CPU-bound compression pass on every single image. For a few
+  // hundred+ page manga that's minutes of completely invisible work after
+  // the download progress bar already says "100%", which looks exactly
+  // like a hung job. `store: true` skips compression and just packages
+  // the bytes — this is what CBZ tools conventionally do, since the
+  // payload is images, not text.
+  const archive = new ZipArchive({ store: true });
 
   // Collect the archive's output into a Buffer.
   const chunks: Buffer[] = [];
@@ -279,6 +507,9 @@ export async function buildMangaCbzBuffer(
     },
   });
   archive.pipe(sink);
+  archive.on("error", (err: Error) => {
+    dlog("buffer:archive-error-event", { error: err.message });
+  });
 
   const jobs = chapters.flatMap((chapter) => {
     const folder =
@@ -294,21 +525,38 @@ export async function buildMangaCbzBuffer(
     }));
   });
 
+  dlog("buffer:build-start", {
+    chapters: chapters.length,
+    totalJobs: jobs.length,
+    maxWorkers,
+  });
+
   let done = 0;
   await mapWithConcurrency(jobs, maxWorkers, async (job) => {
     const buffer = await fetchImageBuffer(job.url);
     archive.append(buffer, { name: job.arcname });
     done++;
-    onProgress?.(done, jobs.length);
+    dlog("buffer:append", {
+      arcname: job.arcname,
+      bytes: buffer.byteLength,
+      done,
+      total: jobs.length,
+    });
+    onProgress?.(done, jobs.length, job.arcname);
   });
 
+  dlog("buffer:finalizing", { totalJobs: jobs.length });
+  onFinalizing?.();
   await archive.finalize();
+  dlog("buffer:finalized-waiting-sink", { totalJobs: jobs.length });
 
   // Wait for the sink to flush everything.
   await new Promise<void>((resolve, reject) => {
     sink.on("finish", resolve);
     sink.on("error", reject);
   });
+
+  dlog("buffer:sink-flushed", { chunks: chunks.length });
 
   return Buffer.concat(chunks);
 }
@@ -330,12 +578,16 @@ export function groupUrlsByChapter(urls: string[]): MangaChapterInput[] {
   const chapterMap = new Map<string, string[]>();
 
   for (const url of urls) {
-    const match = url.match(/\/(\d{4})-(\d{3})\.png$/i);
+    // FIX: this previously required exactly 4 digits with no decimal,
+    // which silently dropped every page of decimal chapters (e.g.
+    // "0049.1-001.png") — the literal cause of "No chapters resolved for
+    // this manga" for any manga with a .1/.5-style chapter in its run.
+    const match = url.match(/\/(\d{4}(?:\.\d+)?)-(\d{3})\.png$/i);
     if (!match) {
       console.warn(`Skipping URL that didn't match expected pattern: ${url}`);
       continue;
     }
-    const chapterNum = match[1]; // e.g. "0001"
+    const chapterNum = match[1]; // e.g. "0001" or "0049.1"
     if (!chapterMap.has(chapterNum)) chapterMap.set(chapterNum, []);
     chapterMap.get(chapterNum)!.push(url);
   }
@@ -343,7 +595,7 @@ export function groupUrlsByChapter(urls: string[]): MangaChapterInput[] {
   return Array.from(chapterMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([chapterNum, imageUrls]) => ({
-      label: chapterNum, // keep "0001" as-is so download.ts writes chapter_0001, not chapter_1
+      label: chapterNum, // keep "0001"/"0049.1" as-is so download.ts writes chapter_0001 / chapter_0049.1
       imageUrls,
     }));
 }
