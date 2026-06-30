@@ -147,6 +147,7 @@ export const downloadMangaTask = task({
       url: payload.url,
     });
 
+    metadata.set("kind", "download-manga");
     metadata.set("stage", "resolving");
     metadata.set("statusMessage", "Looking up manga details...");
     metadata.set("progress", 0);

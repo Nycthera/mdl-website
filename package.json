@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "doctor": "npx react-doctor@latest",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "fix_everything": "pnpm prettier --check --write ."
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",

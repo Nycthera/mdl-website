@@ -1,18 +1,21 @@
 // /api/v1/jobs/[id]/route.ts
 //
-// Polling endpoint for download job status. The frontend hits this every
-// ~2.5s after enqueuing a download.
+// Polling endpoint for job status — used for BOTH stages of a download:
+//   1. The initial `download-manga` task (scrapes + writes catalog rows).
+//   2. The `build-cbz` task (downloads pages, builds the archive, uploads
+//      it to Supabase Storage). Triggered separately once the user asks
+//      to actually download the manga it just scraped.
 //
 // There's no `downloads` table — we read everything from Trigger.dev
-// directly via `runs.retrieve(runId)`. The task publishes progress through
-// `metadata.set({ progress })` and returns `{ mangaId, mangaName,
-// chapterCount }` as its output.
+// directly via `runs.retrieve(runId)`. Both tasks publish progress through
+// `metadata.set(...)`; `build-cbz` additionally sets `metadata.kind =
+// "build-cbz"` so this route knows which output shape to expect.
 //
-// STREAMING MODE: no CBZ is uploaded to Supabase Storage.  Instead,
-// when the run is COMPLETED, this endpoint returns a `streamUrl`
-// pointing at /api/v1/download/stream?mangaId=... — the frontend
-// navigates there and the CBZ is built + streamed to the browser in
-// real time.
+// When a `build-cbz` run completes, its output includes `storagePath`
+// (e.g. "<userId>/<runId>.cbz"). This route mints a short-lived signed
+// URL from the private `cbz` bucket and returns it as `downloadUrl` — the
+// frontend navigates the browser there directly. We never proxy the
+// archive bytes through this server.
 //
 // Returns:
 //   {
@@ -21,7 +24,8 @@
 //     progress: 0..100,
 //     mangaName?: string,
 //     mangaId?: string,
-//     streamUrl?: string,   // only when completed
+//     downloadUrl?: string,  // only when a build-cbz run completes
+//     filename?: string,     // only when a build-cbz run completes
 //     error?: string
 //   }
 import { NextResponse } from "next/server";
@@ -31,7 +35,13 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const maxDuration = 15;
 
+// Signed URL lifetime — long enough for a slow connection to start the
+// download after the dashboard navigates to it, short enough that a leaked
+// link doesn't stay valid indefinitely.
+const SIGNED_URL_EXPIRY_SECONDS = 60 * 10; // 10 minutes
+
 interface RunMetadata {
+  kind?: "download-manga" | "build-cbz";
   progress?: number;
   mangaName?: string;
   slug?: string;
@@ -44,6 +54,9 @@ interface RunOutput {
   mangaId?: string;
   mangaName?: string;
   chapterCount?: number;
+  /** build-cbz only */
+  filename?: string;
+  storagePath?: string;
 }
 
 /** Map Trigger's run.status to the local status string the frontend expects. */
@@ -104,14 +117,34 @@ export async function GET(
   const mangaName = meta.mangaName ?? output.mangaName ?? null;
   const mangaId = output.mangaId ?? null;
 
-  // ── Build the stream URL when the run is COMPLETED ───────────────
-  // The streaming route reads page URLs from the DB (which the Trigger
-  // task just wrote) and pipes the CBZ to the browser in real time.
-  // No Supabase Storage, no signed URLs — just a direct HTTP stream.
-  const streamUrl =
-    status === "completed" && mangaId
-      ? `/api/v1/download/stream?mangaId=${encodeURIComponent(mangaId)}`
-      : null;
+  // ── Mint a signed URL when a build-cbz run is COMPLETED ────────────
+  // Only build-cbz runs carry a storagePath; the initial download-manga
+  // (scrape) run never produces a downloadable archive on its own.
+  let downloadUrl: string | null = null;
+  let filename: string | null = null;
+
+  if (
+    status === "completed" &&
+    meta.kind === "build-cbz" &&
+    output.storagePath
+  ) {
+    // Defense-in-depth: storagePath is namespaced "<userId>/<runId>.cbz",
+    // so a signed URL can only ever be minted for the bucket prefix the
+    // task itself wrote — but double-check it matches this user anyway
+    // before signing, in case a stale/forged run id is polled.
+    if (output.storagePath.startsWith(`${user.id}/`)) {
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("cbz")
+        .createSignedUrl(output.storagePath, SIGNED_URL_EXPIRY_SECONDS, {
+          download: output.filename ?? true,
+        });
+
+      if (!signErr && signed?.signedUrl) {
+        downloadUrl = signed.signedUrl;
+        filename = output.filename ?? null;
+      }
+    }
+  }
 
   // ── Surface an error message if the run failed ─────────────────────
   let error: string | null = null;
@@ -135,7 +168,8 @@ export async function GET(
     mangaName,
     mangaId,
     chapterCount: meta.chapterCount ?? output.chapterCount ?? null,
-    streamUrl,
+    downloadUrl,
+    filename,
     stage: meta.stage ?? null,
     statusMessage: meta.statusMessage ?? null,
     error,

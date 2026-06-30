@@ -135,10 +135,10 @@ const jobStatusConfig = {
 
 // API response shape from /api/v1/jobs/:runId
 //
-// STREAMING MODE: when the run is COMPLETED, the backend returns a
-// `streamUrl` pointing at /api/v1/download/stream?mangaId=...  The
-// frontend navigates an <a> element there and the browser downloads
-// the CBZ as a real-time stream (no Supabase Storage involved).
+// Used for both stages: the initial scrape (download-manga) run, and the
+// build-cbz run that's triggered once scraping finishes. Only the latter
+// ever returns `downloadUrl` — a short-lived signed URL pointing directly
+// at Supabase Storage.
 interface JobStatusResponse {
   id: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -146,7 +146,8 @@ interface JobStatusResponse {
   mangaName?: string | null;
   mangaId?: string | null;
   chapterCount?: number | null;
-  streamUrl?: string | null;
+  downloadUrl?: string | null;
+  filename?: string | null;
   error?: string | null;
   stage?: string | null;
   statusMessage?: string | null;
@@ -236,7 +237,7 @@ export default function DashboardPage() {
                       : j.chapters,
                     detail:
                       localStatus === "running"
-                        ? data.statusMessage ?? `${data.progress}%`
+                        ? (data.statusMessage ?? `${data.progress}%`)
                         : localStatus === "failed"
                           ? (data.error ?? "failed")
                           : undefined,
@@ -248,21 +249,76 @@ export default function DashboardPage() {
           if (data.status === "completed") {
             stopPolling(jobId);
 
-            // STREAMING MODE: navigate to the streaming endpoint so the
-            // browser starts downloading the CBZ as it's being built.
-            // The route reads page URLs from the DB (written by the
-            // Trigger task) and pipes the archive to the response — no
-            // Supabase Storage, no signed URLs, just a direct stream.
-            if (data.streamUrl) {
+            if (data.downloadUrl) {
+              // This was a build-cbz run — the archive is ready in
+              // Storage. Navigate the browser straight to the signed URL;
+              // we never proxy the bytes through our own server.
               const a = document.createElement("a");
-              a.href = data.streamUrl;
-              a.download = `${data.mangaName ?? "manga"}.cbz`;
+              a.href = data.downloadUrl;
+              a.download = data.filename ?? `${data.mangaName ?? "manga"}.cbz`;
               document.body.appendChild(a);
               a.click();
               a.remove();
-            }
 
-            toast.success("Download starting...");
+              toast.success("Download starting...");
+            } else if (data.mangaId) {
+              // This was the initial scrape (download-manga) run — it has
+              // no archive of its own. Chain straight into build-cbz now
+              // that the chapter/page metadata is in the DB.
+              setJobs((prev) =>
+                prev.map((j) =>
+                  j.id === jobId
+                    ? {
+                        ...j,
+                        status: "running",
+                        progress: 0,
+                        detail: "Preparing archive...",
+                      }
+                    : j
+                )
+              );
+
+              try {
+                const buildRes = await fetch("/api/v1/download/build", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ mangaId: data.mangaId }),
+                });
+
+                if (!buildRes.ok) {
+                  const err = await buildRes.json().catch(() => ({}));
+                  throw new Error(err.error ?? "Failed to start archive build");
+                }
+
+                const { runId: buildRunId } = await buildRes.json();
+
+                // Swap the job onto the new run id and keep polling.
+                setJobs((prev) =>
+                  prev.map((j) =>
+                    j.id === jobId ? { ...j, id: buildRunId } : j
+                  )
+                );
+                pollJob(buildRunId);
+              } catch (err) {
+                setJobs((prev) =>
+                  prev.map((j) =>
+                    j.id === jobId
+                      ? {
+                          ...j,
+                          status: "failed",
+                          detail:
+                            err instanceof Error ? err.message : String(err),
+                        }
+                      : j
+                  )
+                );
+                toast.error(
+                  err instanceof Error
+                    ? err.message
+                    : "Failed to start archive build"
+                );
+              }
+            }
           } else if (data.status === "failed") {
             stopPolling(jobId);
             toast.error(`Download failed: ${data.error ?? "unknown error"}`);
