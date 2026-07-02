@@ -3,12 +3,16 @@ packages:
 
 allowBuilds:
   msgpackr-extract: true
+  protobufjs: true
   sharp: true
   unrs-resolver: true
 
-minimumReleaseAge: 10080
+# minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - "@oxlint/*"
   - "@next/swc-*"
+  - '@trigger.dev/build@4.5.0'
+  - '@trigger.dev/core@4.5.0'
+  - '@trigger.dev/sdk@4.5.0'
 
-trustPolicy: no-downgrade
+# trustPolicy: no-downgrade

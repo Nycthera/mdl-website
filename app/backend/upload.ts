@@ -14,7 +14,7 @@ async function test() {
 
   console.log(`Loaded ${chapters.length} chapters`);
 
-  const stream = buildMangaCbzStream({
+  const stream = await buildMangaCbzStream({
     mangaName: "Onii-chan wa Oshimai",
     chapters,
     maxWorkers: 2, // recommended for MangaDex
