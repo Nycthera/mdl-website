@@ -11,13 +11,14 @@
     "doctor": "npx react-doctor@latest",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "fix_everything": "pnpm prettier --check --write ."
+    "fix_everything": "pnpm prettier --check --write .",
+    "start_fe_and_be": "concurrently \"pnpm run dev\" \"npx trigger.dev@latest dev\""
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
-    "@trigger.dev/sdk": "^4.4.6",
+    "@trigger.dev/sdk": "4.5.0",
     "@vercel/analytics": "^2.0.1",
     "animejs": "^4.4.1",
     "archiver": "^8.0.0",
@@ -42,12 +43,13 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
-    "@trigger.dev/build": "^4.4.6",
+    "@trigger.dev/build": "4.5.0",
     "@types/archiver": "^8.0.0",
     "@types/cheerio": "^1.0.0",
     "@types/node": "^20.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "concurrently": "^10.0.3",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.2.9",
     "eslint-config-prettier": "^10.1.8",

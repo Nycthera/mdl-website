@@ -11,5 +11,8 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - "@oxlint/*"
   - "@next/swc-*"
+  - '@trigger.dev/build@4.5.0'
+  - '@trigger.dev/core@4.5.0'
+  - '@trigger.dev/sdk@4.5.0'
 
 # trustPolicy: no-downgrade

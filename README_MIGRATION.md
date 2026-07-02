@@ -34,7 +34,7 @@ originally forced the move away from Playwright doesn't apply there.
 
 ## Where data lands
 
-```
+```text
 User pastes URL → /api/v1/download
                     │
                     └─→ downloadMangaTask.trigger({ userId, url, source })
@@ -125,6 +125,26 @@ npx trigger.dev@latest dev
 **Critical:** `SUPABASE_SERVICE_ROLE_KEY` must be set on the Trigger.dev
 dashboard (Environment Variables), not just Vercel — the task runs in
 Trigger's runtime, not Vercel's.
+
+## Preview branches
+
+Preview deployments use the Vercel branch name as the Trigger.dev branch
+key, so each branch gets its own synced environment values.
+
+For this repo, the preview-deploy setup is:
+
+1. Set `TRIGGER_SECRET_KEY` on Vercel per environment, using a preview
+   key for preview deployments.
+2. Set `TRIGGER_PREVIEW_BRANCH` to `VERCEL_GIT_COMMIT_REF` for preview
+   deployments.
+3. Add `VERCEL_ACCESS_TOKEN`, `VERCEL_PROJECT_ID`, and `VERCEL_TEAM_ID`
+   to the environment where `trigger.dev deploy` runs.
+4. Keep `syncVercelEnvVars()` enabled in `trigger.config.ts` so Trigger
+   syncs the correct Vercel env vars for each preview branch.
+
+That gives you branch-isolated Trigger.dev environments while keeping
+the Next.js app, the Trigger worker, and Supabase all pointed at the
+same preview deployment inputs.
 
 ## Migration SQL — what it does
 
