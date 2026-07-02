@@ -18,7 +18,7 @@
     "@eslint/js": "^10.0.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
-    "@trigger.dev/sdk": "4.5.0",
+    "@trigger.dev/sdk": "4.4.6",
     "@vercel/analytics": "^2.0.1",
     "animejs": "^4.4.1",
     "archiver": "^8.0.0",
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
-    "@trigger.dev/build": "4.5.0",
+    "@trigger.dev/build": "4.4.6",
     "@types/archiver": "^8.0.0",
     "@types/cheerio": "^1.0.0",
     "@types/node": "^20.0.0",

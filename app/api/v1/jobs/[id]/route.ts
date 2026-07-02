@@ -29,7 +29,7 @@
 //     error?: string
 //   }
 import { NextResponse } from "next/server";
-import { runs } from "@trigger.dev/sdk/v3";
+import { runs } from "@trigger.dev/sdk";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";

@@ -23,7 +23,7 @@
  * Progress is published via `metadata.set("progress", ...)` so the
  * polling endpoint can read it back through `runs.retrieve()`.
  */
-import { task, logger, metadata } from "@trigger.dev/sdk/v3";
+import { task, logger, metadata } from "@trigger.dev/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 import {

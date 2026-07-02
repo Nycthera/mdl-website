@@ -23,7 +23,7 @@
  * task completes — the browser downloads straight from Storage, not
  * through our server.
  */
-import { task, logger, metadata } from "@trigger.dev/sdk/v3";
+import { task, logger, metadata } from "@trigger.dev/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 import {
