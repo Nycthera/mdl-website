@@ -1,12 +1,13 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
+import {
+  additionalPackages,
+  syncVercelEnvVars,
+} from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   project: "proj_shayrpiwadsohrihzqdu",
   runtime: "node",
   logLevel: "log",
-  // The max compute seconds a task is allowed to run. If the task run exceeds this duration, it will be stopped.
-  // You can override this on an individual task.
-  // See https://trigger.dev/docs/runs/max-duration
   maxDuration: 3600,
   retries: {
     enabledInDev: true,
@@ -19,10 +20,15 @@ export default defineConfig({
     },
   },
   dirs: ["./src/trigger"],
-  // NOTE: the playwright build extension (and the chromium/firefox/webkit
-  // binaries it pulled into the deployed image) has been removed. The
-  // WeebCentral scraper no longer needs a headless browser — it fetches
-  // the chapter's server-rendered `/images?reading_style=long_strip`
-  // endpoint over plain HTTP instead. This also meaningfully shrinks and
-  // speeds up the Trigger.dev build.
+  build: {
+    external: ["archiver"],
+    extensions: [
+      additionalPackages({ packages: ["archiver"] }),
+      syncVercelEnvVars({
+        projectId: process.env.VERCEL_PROJECT_ID,
+        vercelAccessToken: process.env.VERCEL_ACCESS_TOKEN,
+        vercelTeamId: process.env.VERCEL_TEAM_ID,
+      }),
+    ],
+  },
 });

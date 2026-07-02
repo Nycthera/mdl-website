@@ -7,12 +7,19 @@
 // for backwards compatibility / tests; the streaming route uses
 // `buildMangaCbzStream` because it can pipe straight into a Response.
 import { Readable, Writable, type Transform } from "node:stream";
-import { createRequire } from "node:module";
+
+let _ZipArchive: ZipArchiveConstructor | null = null;
+async function getZipArchive(): Promise<ZipArchiveConstructor> {
+  if (!_ZipArchive) {
+    const mod = await import("archiver");
+    _ZipArchive = (mod as unknown as { ZipArchive: ZipArchiveConstructor })
+      .ZipArchive;
+  }
+  return _ZipArchive;
+}
 import path from "node:path";
 
 import { MIRROR_REQUEST_HEADERS } from "@/app/backend/manual/scrapping/mirrorProbe";
-
-const require = createRequire(import.meta.url);
 
 /* ---------------------------------------------------------------------- */
 /* archiver v8 typing                                                     */
@@ -47,10 +54,6 @@ interface ZipArchive extends Transform {
 interface ZipArchiveConstructor {
   new (options?: ZipArchiveOptions): ZipArchive;
 }
-
-const { ZipArchive } = require("archiver") as {
-  ZipArchive: ZipArchiveConstructor;
-};
 
 // ---------------------------------------------------------------------- //
 // Per-host pacing.
@@ -405,15 +408,17 @@ async function mapWithConcurrency<T, R>(
  * Builds a .cbz stream that mirrors create_cbz_for_all() in src/cbz.py.
  * (Unchanged from the original — kept for backwards compatibility.)
  */
-export function buildMangaCbzStream(
+export async function buildMangaCbzStream(
   options: BuildMangaCbzOptions
-): ReadableStream {
+): Promise<ReadableStream> {
   const { chapters, maxWorkers = 10 } = options;
   // FIX: images (png/jpg/webp) are already compressed — running them
   // through DEFLATE at max level buys ~1-2% extra size at the cost of a
   // real CPU-bound compression pass on every single image. `store: true`
   // skips compression and just packages the bytes, which is what CBZ
   // tools conventionally do since the payload is images, not text.
+  // AFTER:
+  const ZipArchive = await getZipArchive();
   const archive = new ZipArchive({ store: true });
 
   archive.on("error", (err: Error) => {
@@ -496,6 +501,7 @@ export async function buildMangaCbzBuffer(
   // like a hung job. `store: true` skips compression and just packages
   // the bytes — this is what CBZ tools conventionally do, since the
   // payload is images, not text.
+  const ZipArchive = await getZipArchive();
   const archive = new ZipArchive({ store: true });
 
   // Collect the archive's output into a Buffer.
