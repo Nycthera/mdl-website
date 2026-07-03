@@ -25,6 +25,7 @@
  */
 import { task, logger, metadata } from "@trigger.dev/sdk";
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 import {
   buildMangaCbzBuffer,
@@ -62,7 +63,10 @@ function supabaseAdmin() {
     );
   }
 
-  return createClient(url, serviceRoleKey, { auth: { persistSession: false } });
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false },
+    realtime: { transport: ws },
+  });
 }
 
 export const buildCbzTask = task({
