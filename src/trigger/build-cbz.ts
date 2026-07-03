@@ -25,6 +25,7 @@
  */
 import { task, logger, metadata } from "@trigger.dev/sdk";
 import { createClient } from "@supabase/supabase-js";
+import type { WebSocketLikeConstructor } from "@supabase/realtime-js";
 import ws from "ws";
 
 import {
@@ -32,6 +33,47 @@ import {
   getCbzFilename,
   type MangaChapterInput,
 } from "@/app/backend/downloadLogicForManualAndWeebcentral/download";
+
+// ──────────────────────────────────────────────────────────────────────────
+// WebSocket polyfill for @supabase/realtime-js on Node.js < 22
+//
+// Trigger.dev's prod worker runs Node.js 21, which has no native
+// `globalThis.WebSocket`. @supabase/realtime-js v2.108.2 unconditionally
+// constructs a RealtimeClient inside `new SupabaseClient(...)`, and that
+// constructor calls `WebSocketFactory.getWebSocketConstructor()` whenever
+// `realtime.transport` is nullish — throwing
+//   "Node.js 21 detected without native WebSocket support."
+// before you can make a single REST call.
+//
+// Two layers of defense:
+//   1. `trigger.config.ts` marks `ws` as external + installs it via
+//      `additionalPackages`, so `import ws from "ws"` resolves to the
+//      real WebSocket class at runtime (esbuild bundling `ws` produces
+//      an undefined default export because `ws`'s optional native deps
+//      `bufferutil` / `utf-8-validate` aren't installed in the worker).
+//   2. Belt-and-suspenders: assign `ws` to `globalThis.WebSocket` so
+//      `WebSocketFactory.detectEnvironment()` returns
+//      `{ type: 'native', wsConstructor: ws }` even if the
+//      `realtime: { transport: ws }` option is somehow lost in a future
+//      supabase-js upgrade. This task never subscribes to a channel, so
+//      the polyfill is never actually used to open a socket — it just
+//      has to exist so the constructor doesn't throw.
+//
+// `ws`'s constructor signature (`new (url, options?: ClientOptions)`) is
+// runtime-compatible with `WebSocketLikeConstructor`
+// (`new (url, subprotocols?: string|string[])`) — supabase only ever
+// invokes it with a single URL argument — but the static types don't
+// overlap, so we cast through `unknown`.
+// ──────────────────────────────────────────────────────────────────────────
+const wsTransport = ws as unknown as WebSocketLikeConstructor;
+
+if (
+  typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined" &&
+  typeof ws !== "undefined"
+) {
+  (globalThis as { WebSocket: WebSocketLikeConstructor }).WebSocket =
+    wsTransport;
+}
 
 export interface BuildCbzPayload {
   /** auth.users.id of the user who requested this archive — used both for
@@ -63,9 +105,21 @@ function supabaseAdmin() {
     );
   }
 
+  // Defensive: if `ws` is undefined here it means either (a) trigger.config.ts
+  // `external`/`additionalPackages` was reverted, or (b) the build is bundling
+  // `ws` again. Fail loudly with an actionable message instead of letting
+  // @supabase/realtime-js throw the misleading "Node.js 21 detected without
+  // native WebSocket support" error from deep inside its constructor.
+  if (!ws) {
+    throw new Error(
+      "ws package failed to load at runtime. Ensure trigger.config.ts has " +
+        "`external: ['ws']` and `additionalPackages({ packages: ['ws'] })`."
+    );
+  }
+
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false },
-    realtime: { transport: ws },
+    realtime: { transport: wsTransport },
   });
 }
 
