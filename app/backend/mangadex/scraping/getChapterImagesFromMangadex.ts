@@ -101,7 +101,7 @@ async function mangaDexFetch(url: string, retries = 5): Promise<Response> {
 
       nextAllowedTime = Math.max(
         nextAllowedTime,
-        Date.now() + retryAfter * 1000
+        Date.now() + retryAfter * 1000,
       );
 
       await sleep(retryAfter * 1000);
@@ -117,12 +117,12 @@ async function mangaDexFetch(url: string, retries = 5): Promise<Response> {
     if (response.status >= 500) {
       if (attempt === retries) {
         throw new Error(
-          `MangaDex returned ${response.status} after ${retries} attempts`
+          `MangaDex returned ${response.status} after ${retries} attempts`,
         );
       }
 
       console.log(
-        `[${response.status}] MangaDex server error. Retrying in ${attempt}s...`
+        `[${response.status}] MangaDex server error. Retrying in ${attempt}s...`,
       );
 
       await sleep(1000 * attempt);
@@ -140,10 +140,10 @@ async function mangaDexFetch(url: string, retries = 5): Promise<Response> {
 
 export async function getChapterImagesFromMangaDex(
   chapterId: string,
-  useSaver = false
+  useSaver = false,
 ): Promise<ChapterImagesResult> {
   const response = await mangaDexFetch(
-    `https://api.mangadex.org/at-home/server/${chapterId}`
+    `https://api.mangadex.org/at-home/server/${chapterId}`,
   );
 
   if (!response.ok) {
@@ -174,7 +174,7 @@ export async function getChapterImagesFromMangaDex(
 
 export async function getAllChapterIDsForMangaDex(
   mangaId: string,
-  language = "en"
+  language = "en",
 ): Promise<string[]> {
   const chapterIds: string[] = [];
   let offset = 0;
@@ -182,7 +182,7 @@ export async function getAllChapterIDsForMangaDex(
 
   while (true) {
     const res = await mangaDexFetch(
-      `https://api.mangadex.org/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=${language}&order[chapter]=asc`
+      `https://api.mangadex.org/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=${language}&order[chapter]=asc`,
     );
 
     if (!res.ok) {

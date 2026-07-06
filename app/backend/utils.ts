@@ -187,7 +187,7 @@ export function createFolderForManga(mangaTitle: string): string {
 
 export async function getChapterIDForMangaDex(
   url: string,
-  mangaID: string
+  mangaID: string,
 ): Promise<string | null> {
   const baseUrl = "https://api.mangadex.org";
 

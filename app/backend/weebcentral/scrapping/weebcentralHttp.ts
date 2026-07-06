@@ -36,7 +36,7 @@ function looksLikeCloudflareChallenge(status: number, html: string): boolean {
  *  handling and Cloudflare-challenge detection. */
 export async function fetchWeebCentralHtml(
   url: string,
-  maxRetries = 3
+  maxRetries = 3,
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -54,7 +54,7 @@ export async function fetchWeebCentralHtml(
       if (looksLikeCloudflareChallenge(res.status, html)) {
         throw new Error(
           "WeebCentral returned a Cloudflare challenge page — this source " +
-            "can't be scraped without a JS-challenge solver right now."
+            "can't be scraped without a JS-challenge solver right now.",
         );
       }
 

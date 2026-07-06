@@ -43,7 +43,7 @@ export async function checkMirrorUrl(url: string): Promise<boolean> {
 
 /** Races all known mirrors for one candidate path, returns the first working full URL or null if all fail. */
 export async function findWorkingMirrorUrl(
-  candidates: string[]
+  candidates: string[],
 ): Promise<string | null> {
   try {
     return await Promise.any(
@@ -51,7 +51,7 @@ export async function findWorkingMirrorUrl(
         const ok = await checkMirrorUrl(url);
         if (ok) return url;
         throw new Error("not found");
-      })
+      }),
     );
   } catch {
     return null;
@@ -82,7 +82,7 @@ export async function probeChapterPages(
   startPage: number,
   stickyBaseIn: string | null,
   maxPages = 100,
-  batchSize = 5
+  batchSize = 5,
 ): Promise<{ urls: string[]; stickyBase: string | null }> {
   const urls: string[] = [];
   let stickyBase = stickyBaseIn;
@@ -92,7 +92,7 @@ export async function probeChapterPages(
     const batchEnd = Math.min(page + batchSize - 1, maxPages);
     const batchPages = Array.from(
       { length: batchEnd - page + 1 },
-      (_, idx) => page + idx
+      (_, idx) => page + idx,
     );
 
     const batchResults = stickyBase
@@ -101,7 +101,7 @@ export async function probeChapterPages(
             const pageStr = p.toString().padStart(3, "0");
             const candidate = `${stickyBase}${mangaName}/${chapterStr}-${pageStr}.png`;
             return (await checkMirrorUrl(candidate)) ? candidate : null;
-          })
+          }),
         )
       : batchPages.map(() => null);
 
@@ -114,7 +114,7 @@ export async function probeChapterPages(
         const pageRelative = `${mangaName}/${chapterStr}-${pageStr}.png`;
 
         pageUrl = await findWorkingMirrorUrl(
-          MIRROR_BASE_URLS.map((base) => `${base}${pageRelative}`)
+          MIRROR_BASE_URLS.map((base) => `${base}${pageRelative}`),
         );
 
         if (pageUrl) {

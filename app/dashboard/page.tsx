@@ -50,8 +50,8 @@ import {
   getMangaStats,
   type Manga,
 } from "@/app/backend/supabaseFunctions/getMangaInfo/getMangaInfo";
-import { supabase } from "../backend/supabaseFunctions/supabaseClient";
 import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { defineTypeOfURL } from "@/app/backend/utils";
 
 // --- Types ---
@@ -182,12 +182,12 @@ export default function DashboardPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const runningJobs = jobs.filter(
-    (j) => j.status === "running" || j.status === "queued"
+    (j) => j.status === "running" || j.status === "queued",
   ).length;
 
   // Track polling intervals so we can clean them up.
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
-    new Map()
+    new Map(),
   );
 
   /** Stop polling for a job. */
@@ -215,8 +215,8 @@ export default function DashboardPage() {
               prev.map((j) =>
                 j.id === jobId
                   ? { ...j, status: "failed", detail: "run not found" }
-                  : j
-              )
+                  : j,
+              ),
             );
             return;
           }
@@ -242,8 +242,8 @@ export default function DashboardPage() {
                           ? (data.error ?? "failed")
                           : undefined,
                   }
-                : j
-            )
+                : j,
+            ),
           );
 
           if (data.status === "completed") {
@@ -274,8 +274,8 @@ export default function DashboardPage() {
                         progress: 0,
                         detail: "Preparing archive...",
                       }
-                    : j
-                )
+                    : j,
+                ),
               );
 
               try {
@@ -295,8 +295,8 @@ export default function DashboardPage() {
                 // Swap the job onto the new run id and keep polling.
                 setJobs((prev) =>
                   prev.map((j) =>
-                    j.id === jobId ? { ...j, id: buildRunId } : j
-                  )
+                    j.id === jobId ? { ...j, id: buildRunId } : j,
+                  ),
                 );
                 pollJob(buildRunId);
               } catch (err) {
@@ -309,13 +309,13 @@ export default function DashboardPage() {
                           detail:
                             err instanceof Error ? err.message : String(err),
                         }
-                      : j
-                  )
+                      : j,
+                  ),
                 );
                 toast.error(
                   err instanceof Error
                     ? err.message
-                    : "Failed to start archive build"
+                    : "Failed to start archive build",
                 );
               }
             }
@@ -330,7 +330,7 @@ export default function DashboardPage() {
 
       pollersRef.current.set(jobId, interval);
     },
-    [stopPolling]
+    [stopPolling],
   );
 
   // Clean up all pollers on unmount.
@@ -393,8 +393,8 @@ export default function DashboardPage() {
         prev.map((j) =>
           j.id === tempId
             ? { ...j, id: runId, status: "running", detail: "starting..." }
-            : j
-        )
+            : j,
+        ),
       );
       pollJob(runId);
 
@@ -403,29 +403,25 @@ export default function DashboardPage() {
     } catch (err) {
       console.error(err);
       toast.error(
-        err instanceof Error ? err.message : "Failed to start download"
+        err instanceof Error ? err.message : "Failed to start download",
       );
       setJobs((prev) =>
         prev.map((j) =>
-          j.id === tempId ? { ...j, status: "failed", detail: String(err) } : j
-        )
+          j.id === tempId ? { ...j, status: "failed", detail: String(err) } : j,
+        ),
       );
     } finally {
       setIsAddingDownload(false);
     }
   }
 
+  const { data: session, status } = useSession();
+
   useEffect(() => {
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/login");
-      }
+    if (status === "unauthenticated") {
+      router.push("/login");
     }
-    checkAuth();
-  }, [router]);
+  }, [status, router]);
 
   useEffect(() => {
     async function load() {
@@ -448,7 +444,7 @@ export default function DashboardPage() {
   }, []);
 
   const filtered = manga.filter((m) =>
-    m.manga_name.toLowerCase().includes(search.toLowerCase())
+    m.manga_name.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -465,16 +461,12 @@ export default function DashboardPage() {
               <Link href="/docs/API.md">Docs</Link>
             </Button>
 
-            {/* destory a session */}
+            {/* destroy a session */}
             <Button
               variant="ghost"
               size="icon"
               onClick={async () => {
-                const { error } = await supabase.auth.signOut();
-                router.push("/login");
-                if (error) {
-                  console.error("Error signing out:", error);
-                }
+                await signOut({ callbackUrl: "/login" });
               }}
             >
               <LogOut className="h-4 w-4" />

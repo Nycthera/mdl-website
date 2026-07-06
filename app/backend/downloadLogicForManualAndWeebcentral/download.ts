@@ -7,6 +7,8 @@
 // for backwards compatibility / tests; the streaming route uses
 // `buildMangaCbzStream` because it can pipe straight into a Response.
 import { Readable, Writable, type Transform } from "node:stream";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { logger } from "@trigger.dev/sdk";
 
 let _ZipArchive: ZipArchiveConstructor | null = null;
 async function getZipArchive(): Promise<ZipArchiveConstructor> {
@@ -138,7 +140,7 @@ function notifyRateLimited(url: string, retryAfterMs: number) {
   // the pause doesn't fire instantly alongside a sibling.
   nextAllowedRequestTimeByHost.set(
     host,
-    Math.max(nextAllowedRequestTimeByHost.get(host) ?? 0, now + retryAfterMs)
+    Math.max(nextAllowedRequestTimeByHost.get(host) ?? 0, now + retryAfterMs),
   );
 }
 
@@ -237,6 +239,54 @@ function filenameFromUrl(url: string): string {
   }
 }
 
+/**
+ * Which sink to write logs to. Set once, at the top of each entry-point
+ * function, via `logModeStorage.run(...)` — everything called underneath
+ * (fetchImageBuffer, mapWithConcurrency, archive events) inherits it
+ * automatically through AsyncLocalStorage, so we don't have to thread a
+ * "mode" parameter through every function signature.
+ *
+ *  - "console": we're inside `buildMangaCbzStream`, called from the
+ *    Next.js streaming route — NOT a Trigger.dev task. `logger.*` is a
+ *    documented no-op here, so only console output is useful (visible in
+ *    the `next dev` terminal).
+ *  - "trigger": we're inside `buildMangaCbzBuffer`, called from the
+ *    `build-cbz` Trigger.dev task. Trigger.dev captures raw stdout
+ *    AND `logger.*` calls independently, so calling both here just
+ *    duplicates every line — one clean structured row from `logger`,
+ *    plus one ugly plain-text `util.inspect` dump from `console.log`.
+ *    We only want the structured one, so console is skipped entirely.
+ */
+const logModeStorage = new AsyncLocalStorage<"console" | "trigger">();
+
+function dlog(
+  step: string,
+  details?: Record<string, unknown>,
+  level: "debug" | "info" | "warn" | "error" = "debug",
+) {
+  const mode = logModeStorage.getStore() ?? "console";
+
+  if (mode === "trigger") {
+    logger[level](step, details ?? {});
+    return;
+  }
+
+  const ts = new Date().toISOString().split("T")[1];
+  const prefix = `[cbz ${ts}] ${step}`;
+  const consoleFn =
+    level === "error"
+      ? console.error
+      : level === "warn"
+        ? console.warn
+        : console.log;
+
+  if (details !== undefined) {
+    consoleFn(prefix, details);
+  } else {
+    consoleFn(prefix);
+  }
+}
+
 /** Mirrors the retry loop in download_image() from src/downloader.py
  *
  *  FIX: previously called `fetch(url)` with NO headers.  The scan-mirror
@@ -247,22 +297,10 @@ function filenameFromUrl(url: string): string {
  *  "Executing" for hours until maxDuration killed it.  `checkMirrorUrl`
  *  in mirrorProbe.ts already sends `MIRROR_REQUEST_HEADERS` and works
  *  fine; this function now does the same. */
-/** Timestamp-prefixed logger so these lines are easy to spot/grep in the
- *  `next dev` terminal output, consistent with the [stream ...] logs in
- *  the route handler. */
-function dlog(step: string, details?: unknown) {
-  const ts = new Date().toISOString().split("T")[1];
-  if (details !== undefined) {
-    console.log(`[cbz ${ts}] ${step}`, details);
-  } else {
-    console.log(`[cbz ${ts}] ${step}`);
-  }
-}
-
 async function fetchImageBuffer(
   url: string,
   maxRetries = 4,
-  backoffFactorMs = 800
+  backoffFactorMs = 800,
 ): Promise<Buffer> {
   let lastError: unknown;
   const startedAt = Date.now();
@@ -283,7 +321,7 @@ async function fetchImageBuffer(
         const retryAfter =
           Number(response.headers.get("retry-after")) || attempt * 5;
 
-        dlog("fetch:429", { url, attempt, retryAfterSec: retryAfter });
+        dlog("fetch:429", { url, attempt, retryAfterSec: retryAfter }, "warn");
 
         // Notify all sibling workers that this host is rate-limited so
         // they pause too — without this, 8 workers each independently
@@ -314,17 +352,21 @@ async function fetchImageBuffer(
       return buffer;
     } catch (err) {
       lastError = err;
-      dlog("fetch:error", {
-        url,
-        attempt,
-        maxRetries,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      dlog(
+        "fetch:error",
+        {
+          url,
+          attempt,
+          maxRetries,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "warn",
+      );
 
       if (attempt < maxRetries) {
         const delay = Math.min(
           backoffFactorMs * Math.pow(2, attempt - 1),
-          8_000
+          8_000,
         );
 
         dlog("fetch:retrying", {
@@ -339,16 +381,20 @@ async function fetchImageBuffer(
     }
   }
 
-  dlog("fetch:exhausted", {
-    url,
-    maxRetries,
-    totalMs: Date.now() - startedAt,
-    lastError:
-      lastError instanceof Error ? lastError.message : String(lastError),
-  });
+  dlog(
+    "fetch:exhausted",
+    {
+      url,
+      maxRetries,
+      totalMs: Date.now() - startedAt,
+      lastError:
+        lastError instanceof Error ? lastError.message : String(lastError),
+    },
+    "error",
+  );
 
   throw new Error(
-    `Failed to download ${url} after ${maxRetries} attempts: ${String(lastError)}`
+    `Failed to download ${url} after ${maxRetries} attempts: ${String(lastError)}`,
   );
 }
 
@@ -356,9 +402,9 @@ async function fetchImageBuffer(
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
-  fn: (item: T) => Promise<R>
+  fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
-  dlog("concurrency:start", { totalJobs: items.length, limit });
+  dlog("concurrency:start", { totalJobs: items.length, limit }, "info");
   const results: R[] = new Array(items.length);
   let next = 0;
   let completed = 0;
@@ -371,23 +417,31 @@ async function mapWithConcurrency<T, R>(
         results[i] = await fn(items[i]);
         completed++;
         if (completed % 10 === 0 || completed === items.length) {
-          dlog("concurrency:progress", {
-            completed,
-            failed,
-            total: items.length,
-            workerId,
-          });
+          dlog(
+            "concurrency:progress",
+            {
+              completed,
+              failed,
+              total: items.length,
+              workerId,
+            },
+            "info",
+          );
         }
       } catch (err) {
         failed++;
-        dlog("concurrency:job-failed", {
-          jobIndex: i,
-          workerId,
-          completedSoFar: completed,
-          failedSoFar: failed,
-          total: items.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        dlog(
+          "concurrency:job-failed",
+          {
+            jobIndex: i,
+            workerId,
+            completedSoFar: completed,
+            failedSoFar: failed,
+            total: items.length,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "error",
+        );
         throw err;
       }
     }
@@ -395,11 +449,11 @@ async function mapWithConcurrency<T, R>(
   try {
     await Promise.all(
       Array.from({ length: Math.min(limit, items.length) }, (_, workerId) =>
-        worker(workerId)
-      )
+        worker(workerId),
+      ),
     );
   } finally {
-    dlog("concurrency:end", { completed, failed, total: items.length });
+    dlog("concurrency:end", { completed, failed, total: items.length }, "info");
   }
   return results;
 }
@@ -409,66 +463,75 @@ async function mapWithConcurrency<T, R>(
  * (Unchanged from the original — kept for backwards compatibility.)
  */
 export async function buildMangaCbzStream(
-  options: BuildMangaCbzOptions
+  options: BuildMangaCbzOptions,
 ): Promise<ReadableStream> {
-  const { chapters, maxWorkers = 10 } = options;
-  // FIX: images (png/jpg/webp) are already compressed — running them
-  // through DEFLATE at max level buys ~1-2% extra size at the cost of a
-  // real CPU-bound compression pass on every single image. `store: true`
-  // skips compression and just packages the bytes, which is what CBZ
-  // tools conventionally do since the payload is images, not text.
-  // AFTER:
-  const ZipArchive = await getZipArchive();
-  const archive = new ZipArchive({ store: true });
+  return logModeStorage.run("console", async () => {
+    const { chapters, maxWorkers = 10 } = options;
+    // FIX: images (png/jpg/webp) are already compressed — running them
+    // through DEFLATE at max level buys ~1-2% extra size at the cost of a
+    // real CPU-bound compression pass on every single image. `store: true`
+    // skips compression and just packages the bytes, which is what CBZ
+    // tools conventionally do since the payload is images, not text.
+    const ZipArchive = await getZipArchive();
+    const archive = new ZipArchive({ store: true });
 
-  archive.on("error", (err: Error) => {
-    dlog("archive:error-event", { error: err.message });
-    console.error("Archive error:", err);
-  });
+    archive.on("error", (err: Error) => {
+      dlog("archive:error-event", { error: err.message }, "error");
+      console.error("Archive error:", err);
+    });
 
-  const jobs = chapters.flatMap((chapter) => {
-    const folder =
-      chapter.folder ?? `chapter_${normalizeChapterLabel(chapter.label)}`;
-    const named = chapter.imageUrls.map((url) => ({
-      url,
-      filename: filenameFromUrl(url),
-    }));
-    named.sort((a, b) => a.filename.localeCompare(b.filename)); // mirrors sorted(files)
-    return named.map(({ url, filename }) => ({
-      url,
-      arcname: `${folder}/${filename}`,
-    }));
-  });
+    const jobs = chapters.flatMap((chapter) => {
+      const folder =
+        chapter.folder ?? `chapter_${normalizeChapterLabel(chapter.label)}`;
+      const named = chapter.imageUrls.map((url) => ({
+        url,
+        filename: filenameFromUrl(url),
+      }));
+      named.sort((a, b) => a.filename.localeCompare(b.filename)); // mirrors sorted(files)
+      return named.map(({ url, filename }) => ({
+        url,
+        arcname: `${folder}/${filename}`,
+      }));
+    });
 
-  dlog("stream:build-start", {
-    chapters: chapters.length,
-    totalJobs: jobs.length,
-    maxWorkers,
-  });
+    dlog(
+      "stream:build-start",
+      {
+        chapters: chapters.length,
+        totalJobs: jobs.length,
+        maxWorkers,
+      },
+      "info",
+    );
 
-  (async () => {
-    try {
-      await mapWithConcurrency(jobs, maxWorkers, async (job) => {
-        const buffer = await fetchImageBuffer(job.url);
-        archive.append(buffer, { name: job.arcname });
-        dlog("archive:append", {
-          arcname: job.arcname,
-          bytes: buffer.byteLength,
+    (async () => {
+      try {
+        await mapWithConcurrency(jobs, maxWorkers, async (job) => {
+          const buffer = await fetchImageBuffer(job.url);
+          archive.append(buffer, { name: job.arcname });
+          dlog("archive:append", {
+            arcname: job.arcname,
+            bytes: buffer.byteLength,
+          });
         });
-      });
-      dlog("stream:finalizing", { totalJobs: jobs.length });
-      await archive.finalize();
-      dlog("stream:finalized", { totalJobs: jobs.length });
-    } catch (err) {
-      dlog("stream:build-failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      console.error("Failed to build CBZ:", err);
-      archive.destroy(err instanceof Error ? err : new Error(String(err)));
-    }
-  })();
+        dlog("stream:finalizing", { totalJobs: jobs.length }, "info");
+        await archive.finalize();
+        dlog("stream:finalized", { totalJobs: jobs.length }, "info");
+      } catch (err) {
+        dlog(
+          "stream:build-failed",
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "error",
+        );
+        console.error("Failed to build CBZ:", err);
+        archive.destroy(err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
 
-  return Readable.toWeb(archive) as ReadableStream;
+    return Readable.toWeb(archive) as ReadableStream;
+  });
 }
 
 /**
@@ -490,81 +553,100 @@ export async function buildMangaCbzBuffer(
      *  into the archive — the one previously-invisible gap between
      *  "100% downloaded" and the function actually returning. */
     onFinalizing?: () => void;
-  }
+  },
 ): Promise<Buffer> {
-  const { chapters, maxWorkers = 10, onProgress, onFinalizing } = options;
-  // FIX: images (png/jpg/webp) are already compressed — running them
-  // through DEFLATE at max level buys ~1-2% extra size at the cost of a
-  // real CPU-bound compression pass on every single image. For a few
-  // hundred+ page manga that's minutes of completely invisible work after
-  // the download progress bar already says "100%", which looks exactly
-  // like a hung job. `store: true` skips compression and just packages
-  // the bytes — this is what CBZ tools conventionally do, since the
-  // payload is images, not text.
-  const ZipArchive = await getZipArchive();
-  const archive = new ZipArchive({ store: true });
+  return logModeStorage.run("trigger", async () => {
+    const { chapters, maxWorkers = 10, onProgress, onFinalizing } = options;
+    // FIX: images (png/jpg/webp) are already compressed — running them
+    // through DEFLATE at max level buys ~1-2% extra size at the cost of a
+    // real CPU-bound compression pass on every single image. For a few
+    // hundred+ page manga that's minutes of completely invisible work after
+    // the download progress bar already says "100%", which looks exactly
+    // like a hung job. `store: true` skips compression and just packages
+    // the bytes — this is what CBZ tools conventionally do, since the
+    // payload is images, not text.
+    const ZipArchive = await getZipArchive();
+    const archive = new ZipArchive({ store: true });
 
-  // Collect the archive's output into a Buffer.
-  const chunks: Buffer[] = [];
-  const sink = new Writable({
-    write(chunk: Buffer, _encoding, callback) {
-      chunks.push(chunk);
-      callback();
-    },
-  });
-  archive.pipe(sink);
-  archive.on("error", (err: Error) => {
-    dlog("buffer:archive-error-event", { error: err.message });
-  });
-
-  const jobs = chapters.flatMap((chapter) => {
-    const folder =
-      chapter.folder ?? `chapter_${normalizeChapterLabel(chapter.label)}`;
-    const named = chapter.imageUrls.map((url) => ({
-      url,
-      filename: filenameFromUrl(url),
-    }));
-    named.sort((a, b) => a.filename.localeCompare(b.filename));
-    return named.map(({ url, filename }) => ({
-      url,
-      arcname: `${folder}/${filename}`,
-    }));
-  });
-
-  dlog("buffer:build-start", {
-    chapters: chapters.length,
-    totalJobs: jobs.length,
-    maxWorkers,
-  });
-
-  let done = 0;
-  await mapWithConcurrency(jobs, maxWorkers, async (job) => {
-    const buffer = await fetchImageBuffer(job.url);
-    archive.append(buffer, { name: job.arcname });
-    done++;
-    dlog("buffer:append", {
-      arcname: job.arcname,
-      bytes: buffer.byteLength,
-      done,
-      total: jobs.length,
+    // Collect the archive's output into a Buffer.
+    const chunks: Buffer[] = [];
+    const sink = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        chunks.push(chunk);
+        callback();
+      },
     });
-    onProgress?.(done, jobs.length, job.arcname);
+    archive.pipe(sink);
+    archive.on("error", (err: Error) => {
+      dlog("buffer:archive-error-event", { error: err.message }, "error");
+    });
+
+    const jobs = chapters.flatMap((chapter) => {
+      const folder =
+        chapter.folder ?? `chapter_${normalizeChapterLabel(chapter.label)}`;
+      const named = chapter.imageUrls.map((url) => ({
+        url,
+        filename: filenameFromUrl(url),
+      }));
+      named.sort((a, b) => a.filename.localeCompare(b.filename));
+      return named.map(({ url, filename }) => ({
+        url,
+        arcname: `${folder}/${filename}`,
+      }));
+    });
+
+    dlog(
+      "buffer:build-start",
+      {
+        chapters: chapters.length,
+        totalJobs: jobs.length,
+        maxWorkers,
+      },
+      "info",
+    );
+
+    let done = 0;
+    await mapWithConcurrency(jobs, maxWorkers, async (job) => {
+      const buffer = await fetchImageBuffer(job.url);
+      archive.append(buffer, { name: job.arcname });
+      done++;
+      dlog("buffer:append", {
+        arcname: job.arcname,
+        bytes: buffer.byteLength,
+        done,
+        total: jobs.length,
+      });
+      onProgress?.(done, jobs.length, job.arcname);
+    });
+
+    dlog("buffer:finalizing", { totalJobs: jobs.length }, "info");
+    onFinalizing?.();
+    await archive.finalize();
+    dlog("buffer:finalized-waiting-sink", { totalJobs: jobs.length }, "info");
+
+    // Wait for the sink to flush everything.
+    //
+    // FIX: archive.finalize()'s promise resolves once the internal zip
+    // module emits "end" — but for small/fast archives that can happen
+    // late enough in the same synchronous flush that the piped `sink`
+    // Writable ALREADY emitted its own "finish" event before we get here.
+    // Node doesn't replay past stream events to listeners attached
+    // afterward, so unconditionally doing sink.on("finish", resolve) here
+    // could attach after the event already fired — hanging forever. This
+    // is exactly what was happening: the run sat "Executing" with no logs
+    // after "buffer:finalized-waiting-sink". Check writableFinished first
+    // and skip the wait if the sink already flushed.
+    if (!sink.writableFinished) {
+      await new Promise<void>((resolve, reject) => {
+        sink.on("finish", resolve);
+        sink.on("error", reject);
+      });
+    }
+
+    dlog("buffer:sink-flushed", { chunks: chunks.length }, "info");
+
+    return Buffer.concat(chunks);
   });
-
-  dlog("buffer:finalizing", { totalJobs: jobs.length });
-  onFinalizing?.();
-  await archive.finalize();
-  dlog("buffer:finalized-waiting-sink", { totalJobs: jobs.length });
-
-  // Wait for the sink to flush everything.
-  await new Promise<void>((resolve, reject) => {
-    sink.on("finish", resolve);
-    sink.on("error", reject);
-  });
-
-  dlog("buffer:sink-flushed", { chunks: chunks.length });
-
-  return Buffer.concat(chunks);
 }
 
 /** Mirrors `f"{safe_base_name}.cbz"` in create_cbz_for_all() */

@@ -22,7 +22,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "./backend/supabaseFunctions/supabaseClient";
+import { useSession } from "next-auth/react";
 
 import { toast } from "sonner";
 
@@ -30,7 +30,8 @@ export default function Home() {
   const featuresRef = useRef<HTMLDivElement>(null);
   const aboutRef = useRef<HTMLElement>(null);
   const router = useRouter();
-  const [loggedIn, setLoggedIn] = useState(false);
+  const { data: session } = useSession();
+  const loggedIn = !!session;
 
   useEffect(() => {
     // Navbar
@@ -66,7 +67,7 @@ export default function Home() {
           }
         });
       },
-      { threshold: 0.15 }
+      { threshold: 0.15 },
     );
 
     if (featuresRef.current) featureObserver.observe(featuresRef.current);
@@ -86,7 +87,7 @@ export default function Home() {
           }
         });
       },
-      { threshold: 0.2 }
+      { threshold: 0.2 },
     );
 
     if (aboutRef.current) aboutObserver.observe(aboutRef.current);
@@ -98,42 +99,34 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        setLoggedIn(true);
-        toast("You're already logged in", {
-          id: "logged-in-toast", //  prevents duplicate toasts
-          description: "Head back to your dashboard.",
-          action: {
-            label: "Go to Dashboard",
-            onClick: () => {
-              toast.dismiss("logged-in-toast"); // dismiss on navigate
-              router.push("/dashboard");
-            },
+    if (session) {
+      toast("You're already logged in", {
+        id: "logged-in-toast",
+        description: "Head back to your dashboard.",
+        action: {
+          label: "Go to Dashboard",
+          onClick: () => {
+            toast.dismiss("logged-in-toast");
+            router.push("/dashboard");
           },
-          duration: 8000,
-          style: {
-            background: "hsl(var(--card))",
-            border: "1px solid hsl(var(--border))",
-            color: "hsl(var(--card-foreground))",
-          },
-          classNames: {
-            description: "!text-muted-foreground",
-            actionButton: "!bg-primary !text-primary-foreground",
-          },
-        });
-      }
+        },
+        duration: 8000,
+        style: {
+          background: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          color: "hsl(var(--card-foreground))",
+        },
+        classNames: {
+          description: "!text-muted-foreground",
+          actionButton: "!bg-primary !text-primary-foreground",
+        },
+      });
     }
-    checkAuth();
 
-    // dismiss toast when leaving the page
     return () => {
       toast.dismiss("logged-in-toast");
     };
-  }, [router]);
+  }, [session, router]);
 
   return (
     <main className="min-h-screen bg-background">

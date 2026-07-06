@@ -9,7 +9,7 @@ const baseUrls = [
 ];
 
 export async function findCoverImageURL(
-  inputUrl: string
+  inputUrl: string,
 ): Promise<string | null> {
   const mangaSlug = returnGlobFromURL(inputUrl);
 
@@ -42,7 +42,7 @@ export async function findCoverImageURL(
     } catch (err) {
       console.error(
         `[findCoverImageURL] ${candidateUrl} -> ERROR`,
-        err instanceof Error ? err.message : err
+        err instanceof Error ? err.message : err,
       );
     }
   }

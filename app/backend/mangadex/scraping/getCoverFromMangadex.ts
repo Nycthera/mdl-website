@@ -4,10 +4,10 @@ export type CoverSize = "original" | "256" | "512";
 
 export async function getCoverFromMangadex(
   mangaId: string,
-  size: CoverSize = "original"
+  size: CoverSize = "original",
 ): Promise<string | null> {
   const res = await fetch(
-    `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art`
+    `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art`,
   );
 
   if (!res.ok) {
@@ -17,7 +17,7 @@ export async function getCoverFromMangadex(
   const json = await res.json();
 
   const cover = json.data.relationships.find(
-    (r: any) => r.type === "cover_art"
+    (r: any) => r.type === "cover_art",
   );
 
   const fileName = cover?.attributes?.fileName;

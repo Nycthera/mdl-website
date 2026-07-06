@@ -12,11 +12,11 @@
 // The frontend polls /api/v1/jobs/:runId, which calls runs.retrieve()
 // to read live status + progress (metadata-only — no storagePath).
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUserId } from "@/lib/get-session";
 import {
   enqueueDownload,
   type DownloadSource,
-} from "@/src/trigger/download-manga";
+} from "@/app/src/trigger/download-manga";
 import { defineTypeOfURL } from "@/app/backend/utils";
 
 export const runtime = "nodejs";
@@ -24,12 +24,11 @@ export const maxDuration = 30;
 
 export async function POST(req: Request) {
   // ── 1. Auth ────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Checked against the NextAuth session, not a Supabase cookie session —
+  // see lib/get-session.ts for why.
+  const userId = await getSessionUserId();
 
-  if (!user) {
+  if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -53,7 +52,7 @@ export async function POST(req: Request) {
     if (!inferred) {
       return NextResponse.json(
         { error: "unsupported URL — cannot determine source" },
-        { status: 400 }
+        { status: 400 },
       );
     }
     source = inferred;
@@ -63,7 +62,7 @@ export async function POST(req: Request) {
   let runId: string;
   try {
     runId = await enqueueDownload({
-      userId: user.id,
+      userId,
       url,
       source,
     });
@@ -73,7 +72,7 @@ export async function POST(req: Request) {
         error:
           err instanceof Error ? err.message : "failed to enqueue download",
       },
-      { status: 502 }
+      { status: 502 },
     );
   }
 

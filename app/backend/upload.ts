@@ -9,7 +9,7 @@ import { makeResultsIntoArrayFormatForDownloadFunction } from "@/app/backend/man
 
 async function test() {
   const chapters = await makeResultsIntoArrayFormatForDownloadFunction(
-    "https://mangadex.org/title/ed996855-70de-449f-bba2-e8e24224c14d/onii-chan-wa-oshimai"
+    "https://mangadex.org/title/ed996855-70de-449f-bba2-e8e24224c14d/onii-chan-wa-oshimai",
   );
 
   console.log(`Loaded ${chapters.length} chapters`);

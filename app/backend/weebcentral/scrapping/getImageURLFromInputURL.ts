@@ -50,7 +50,7 @@ function extractTitleFromImageUrls(imageUrls: string[]): string {
  * run.
  */
 export async function fetchChapterImageUrls(
-  chapterUrl: string
+  chapterUrl: string,
 ): Promise<string[]> {
   const imagesUrl = `${chapterUrl.replace(/\/+$/, "")}/images?reading_style=long_strip`;
   const html = await fetchWeebCentralHtml(imagesUrl);
@@ -97,7 +97,7 @@ export async function fetchChapterImageUrls(
     chapterStr,
     firstPageNum + 1,
     stickyBase,
-    100
+    100,
   );
 
   return [firstImageUrl, ...restUrls];

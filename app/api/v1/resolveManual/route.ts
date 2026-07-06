@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (!coverUrl) {
     return new Response(
       JSON.stringify({ error: "Could not resolve manga from URL" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
+      { status: 404, headers: { "Content-Type": "application/json" } },
     );
   }
 

@@ -11,7 +11,7 @@ export async function gatherAllUrlsFromSample(
   sampleUrl: string,
   maxChapters = 2000,
   maxPages = 100,
-  maxConsecutiveMisses = 3
+  maxConsecutiveMisses = 3,
 ): Promise<string[]> {
   const mangaName = returnGlobFromURL(sampleUrl);
   if (!mangaName) throw new Error("Invalid manga URL");
@@ -41,7 +41,7 @@ export async function gatherAllUrlsFromSample(
       // Sticky mirror missed (or we don't have one yet) — race all 4 to
       // find out if the series moved mirrors or this chapter doesn't exist.
       firstPageUrl = await findWorkingMirrorUrl(
-        MIRROR_BASE_URLS.map((base) => `${base}${firstPageRelative}`)
+        MIRROR_BASE_URLS.map((base) => `${base}${firstPageRelative}`),
       );
 
       if (firstPageUrl) {
@@ -68,7 +68,7 @@ export async function gatherAllUrlsFromSample(
       chapterStr,
       2,
       stickyBase,
-      maxPages
+      maxPages,
     );
     urls.push(...rest.urls);
     stickyBase = rest.stickyBase;

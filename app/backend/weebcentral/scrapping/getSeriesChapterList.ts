@@ -60,7 +60,7 @@ function getChapterListUrl(seriesUrl: string): string {
  * Translated from the Python reference's `get_chapters()`.
  */
 export async function getWeebCentralSeriesChapters(
-  seriesUrl: string
+  seriesUrl: string,
 ): Promise<WeebCentralChapterRef[]> {
   const listUrl = getChapterListUrl(seriesUrl);
   const html = await fetchWeebCentralHtml(listUrl);
@@ -91,7 +91,7 @@ export async function getWeebCentralSeriesChapters(
  * a slug-based fallback.
  */
 export async function getWeebCentralSeriesTitle(
-  seriesUrl: string
+  seriesUrl: string,
 ): Promise<string | null> {
   try {
     const html = await fetchWeebCentralHtml(seriesUrl);
@@ -116,7 +116,7 @@ export async function getWeebCentralSeriesTitle(
  * to single-chapter behavior instead of failing outright.
  */
 export async function discoverSeriesUrlFromChapterPage(
-  chapterUrl: string
+  chapterUrl: string,
 ): Promise<string | null> {
   try {
     const html = await fetchWeebCentralHtml(chapterUrl);

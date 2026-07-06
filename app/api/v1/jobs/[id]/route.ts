@@ -30,7 +30,8 @@
 //   }
 import { NextResponse } from "next/server";
 import { runs } from "@trigger.dev/sdk";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
+import { getSessionUserId } from "@/lib/get-session";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -61,7 +62,7 @@ interface RunOutput {
 
 /** Map Trigger's run.status to the local status string the frontend expects. */
 function mapStatus(
-  triggerStatus: string
+  triggerStatus: string,
 ): "pending" | "running" | "completed" | "failed" {
   switch (triggerStatus) {
     case "COMPLETED":
@@ -84,19 +85,20 @@ function mapStatus(
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: runId } = await params;
 
   // ── Auth ───────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Checked against the NextAuth session, not a Supabase cookie session —
+  // see lib/get-session.ts for why (GitHub sign-ins never get one).
+  const userId = await getSessionUserId();
 
-  if (!user) {
+  if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  const supabase = createAdminClient();
 
   // ── Pull the run from Trigger ──────────────────────────────────────
   let run: Awaited<ReturnType<typeof runs.retrieve>>;
@@ -105,7 +107,7 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { error: "run not found", status: "failed" },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -132,7 +134,7 @@ export async function GET(
     // so a signed URL can only ever be minted for the bucket prefix the
     // task itself wrote — but double-check it matches this user anyway
     // before signing, in case a stale/forged run id is polled.
-    if (output.storagePath.startsWith(`${user.id}/`)) {
+    if (output.storagePath.startsWith(`${userId}/`)) {
       const { data: signed, error: signErr } = await supabase.storage
         .from("cbz")
         .createSignedUrl(output.storagePath, SIGNED_URL_EXPIRY_SECONDS, {

@@ -15,20 +15,20 @@
 // signed URL pointing directly at Supabase Storage — the browser
 // downloads from there, not through this server.
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { enqueueCbzBuild } from "@/src/trigger/build-cbz";
+import { createAdminClient } from "@/lib/supabase/server";
+import { getSessionUserId } from "@/lib/get-session";
+import { enqueueCbzBuild } from "@/app/src/trigger/build-cbz";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   // ── 1. Auth ────────────────────────────────────────────────────────
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Checked against the NextAuth session, not a Supabase cookie session —
+  // see lib/get-session.ts for why (GitHub sign-ins never get one).
+  const userId = await getSessionUserId();
 
-  if (!user) {
+  if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -50,37 +50,43 @@ export async function POST(req: NextRequest) {
   // The Trigger task re-checks this independently before doing any work,
   // but checking here too lets us return a clean 403 instead of making
   // the user wait on a job that's just going to fail.
+  //
+  // Uses the admin client (service role) since there's no guaranteed
+  // Supabase cookie session for a NextAuth-authenticated request — RLS
+  // is bypassed here deliberately, with the user_id filter below standing
+  // in for it.
+  const supabase = createAdminClient();
   const { data: ownership, error: ownershipErr } = await supabase
     .from("download_history")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("manga_id", mangaId)
     .limit(1);
 
   if (ownershipErr) {
     return NextResponse.json(
       { error: `ownership check failed: ${ownershipErr.message}` },
-      { status: 500 }
+      { status: 500 },
     );
   }
   if (!ownership || ownership.length === 0) {
     return NextResponse.json(
       { error: "forbidden — you have not downloaded this manga" },
-      { status: 403 }
+      { status: 403 },
     );
   }
 
   // ── 4. Enqueue the build-cbz task ──────────────────────────────────
   let runId: string;
   try {
-    runId = await enqueueCbzBuild({ userId: user.id, mangaId });
+    runId = await enqueueCbzBuild({ userId, mangaId });
   } catch (err) {
     return NextResponse.json(
       {
         error:
           err instanceof Error ? err.message : "failed to enqueue cbz build",
       },
-      { status: 502 }
+      { status: 502 },
     );
   }
 

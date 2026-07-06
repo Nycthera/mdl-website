@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,14 +46,32 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      const user = await registerUser(email, password, username);
-      console.log("Registered:", user.email);
-      router.push("/dashboard");
+      // 1. Create the user in Supabase
+      await registerUser(email, password, username);
+
+      // 2. Immediately sign in with NextAuth credentials provider
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        // Account created but auto-sign-in failed — redirect to login
+        router.push("/login");
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create account");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleGithubSignIn = () => {
+    signIn("github", { callbackUrl: "/dashboard" });
   };
 
   return (
@@ -116,7 +135,12 @@ export default function RegisterPage() {
 
             <CardContent>
               <div className="space-y-6">
-                <Button variant="outline" className="w-full" type="button">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  type="button"
+                  onClick={handleGithubSignIn}
+                >
                   <Github className="mr-2 h-4 w-4" />
                   Continue with GitHub
                 </Button>

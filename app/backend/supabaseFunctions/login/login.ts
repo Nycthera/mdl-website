@@ -3,7 +3,7 @@ import { supabase } from "@/app/backend/supabaseFunctions/supabaseClient";
 export async function logInUser(
   email: string,
   password: string,
-  rememberMe: boolean = true
+  rememberMe: boolean = true,
 ) {
   const { data, error } = await supabase.auth.signInWithPassword({
     email,

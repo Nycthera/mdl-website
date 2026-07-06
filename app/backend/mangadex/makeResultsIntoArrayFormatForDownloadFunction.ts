@@ -19,7 +19,7 @@ interface MangaChapterInput {
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
-  fn: (item: T, index: number) => Promise<R>
+  fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -31,14 +31,14 @@ async function mapWithConcurrency<T, R>(
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
   );
   return results;
 }
 
 export async function makeResultsIntoArrayFormatForDownloadFunction(
   mangaUrl: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
 ): Promise<MangaChapterInput[]> {
   const manga = getMangaDexInfoFromURL(mangaUrl);
 
@@ -62,7 +62,7 @@ export async function makeResultsIntoArrayFormatForDownloadFunction(
         label: String(i + 1).padStart(4, "0"),
         imageUrls: chapterImages.fullUrls,
       };
-    }
+    },
   );
 
   return chapters;

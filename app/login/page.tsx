@@ -3,8 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-
-import { logInUser } from "@/app/backend/supabaseFunctions/login/login";
+import { signIn } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,16 +39,27 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const user = await logInUser(email, password);
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
 
-      console.log("Logged in:", user?.email);
-
-      router.push("/dashboard");
+      if (result?.error) {
+        setError("Invalid email or password");
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign in");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleGithubSignIn = () => {
+    signIn("github", { callbackUrl: "/dashboard" });
   };
 
   return (
@@ -117,7 +127,12 @@ export default function LoginPage() {
 
             <CardContent>
               <div className="space-y-6">
-                <Button variant="outline" className="w-full" type="button">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  type="button"
+                  onClick={handleGithubSignIn}
+                >
                   <Github className="mr-2 h-4 w-4" />
                   Continue with GitHub
                 </Button>
