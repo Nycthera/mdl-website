@@ -3,6 +3,51 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { createClient } from "@/lib/supabase/server";
 
+/**
+ * Resolves the NextAuth secret from the environment.
+ *
+ * Tries `NEXTAUTH_SECRET` (NextAuth v4 convention) first, then
+ * `AUTH_SECRET` (v5 convention) — so the same env var works whether you're
+ * on v4 or v5. Throws a clear, actionable error at startup if neither is
+ * set in production.
+ *
+ * This exists because silently passing `undefined` as the secret makes
+ * NextAuth throw `MissingSecretError` on every auth request, which shows
+ * up as a flood of identical 500s in the Vercel logs and is much harder
+ * to diagnose than a single startup-time error. The "Please define a
+ * `secret` in production" message NextAuth prints is technically
+ * accurate but doesn't tell you *how* — this error does.
+ */
+function resolveNextAuthSecret(): string {
+  const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+
+  if (secret) return secret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "NEXTAUTH_SECRET (or AUTH_SECRET) is not set. " +
+        "Generate one with `openssl rand -base64 32` and add it as an " +
+        "environment variable in your Vercel project settings " +
+        "(Settings → Environment Variables → Production). " +
+        "See https://next-auth.js.org/configuration/options#secret.",
+    );
+  }
+
+  // In development NextAuth auto-generates a secret if none is provided,
+  // so returning an empty string here is fine — it'll never reach the
+  // config object because assertConfig only enforces it in production.
+  return "";
+}
+
+const NEXTAUTH_SECRET = resolveNextAuthSecret();
+
+/** Exported for other modules (e.g. proxy.ts's getToken call) so the
+ *  secret is resolved once at module load and shared — re-resolving per
+ *  request would re-throw the startup error on every request. */
+export function getNextAuthSecret(): string {
+  return NEXTAUTH_SECRET;
+}
+
 /** Supabase admin's `listUsers` only supports pagination — there's no
  *  server-side "filter by email" option (unlike what the old code
  *  assumed). So finding a user by email means paging through results
@@ -136,5 +181,5 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
 
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: NEXTAUTH_SECRET,
 };

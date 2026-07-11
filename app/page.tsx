@@ -142,7 +142,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             <Button variant="ghost" asChild>
-              <Link href="/docs/API.md">Docs</Link>
+              <Link href="/docs">Docs</Link>
             </Button>
             <Button asChild className="rounded-xl">
               <Link href={loggedIn ? "/dashboard" : "/login"}>
@@ -177,13 +177,13 @@ export default function Home() {
 
           <div className="hero-item opacity-0 mt-8 flex justify-center gap-4">
             <Button size="lg" asChild>
-              <Link href="/download">
+              <Link href={loggedIn ? "/dashboard" : "/register"}>
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
             <Button variant="outline" size="lg" asChild>
-              <Link href="/docs/API.md">
+              <Link href="/docs">
                 <FileText className="mr-2 h-4 w-4" />
                 API Docs
               </Link>

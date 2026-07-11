@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,21 @@ import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { FaGithub as Github } from "react-icons/fa";
 import { MdBook } from "react-icons/md";
 
+// useSearchParams() requires a Suspense boundary in Next.js App Router
+// (otherwise the whole route de-opts to client-side rendering and
+// throws a build-time warning in production). Wrap the inner
+// component that uses it in <Suspense>.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -31,6 +44,24 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  // Banner message shown above the form — used for post-signup
+  // "check your inbox" / "account created" messages passed via
+  // ?registered= query param from the register page.
+  const [banner, setBanner] = useState("");
+
+  // Read ?registered= query param on mount. The register page sets
+  // this when it redirects here after signup so we can show a clear
+  // message instead of silently landing on a blank login form.
+  useEffect(() => {
+    const registered = searchParams.get("registered");
+    if (registered === "confirm-email") {
+      setBanner(
+        "Account created! Check your inbox for a confirmation email, then sign in.",
+      );
+    } else if (registered === "1") {
+      setBanner("Account created! Please sign in to continue.");
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +77,16 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError("Invalid email or password");
+        // Surface a more helpful error than "Invalid email or password"
+        // when the email isn't confirmed yet — this is the #1 cause of
+        // "I signed up but can't log in" reports in production.
+        if (result.error.toLowerCase().includes("confirm")) {
+          setError(
+            "Your email isn't confirmed yet. Check your inbox for a confirmation link.",
+          );
+        } else {
+          setError("Invalid email or password");
+        }
       } else {
         router.push("/dashboard");
         router.refresh();
@@ -158,6 +198,12 @@ export default function LoginPage() {
                       required
                     />
                   </div>
+
+                  {banner && (
+                    <div className="rounded-md border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
+                      {banner}
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

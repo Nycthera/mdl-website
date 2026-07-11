@@ -295,10 +295,9 @@ export default function DashboardPage() {
                           ...j,
                           status: "done",
                           progress: 100,
-                          detail:
-                            result.failedPages > 0
-                              ? `Downloaded ${result.totalPages - result.failedPages}/${result.totalPages} pages`
-                              : `Downloaded ${result.totalPages} pages`,
+                          detail: result.failedPages > 0
+                            ? `Downloaded ${result.totalPages - result.failedPages}/${result.totalPages} pages`
+                            : `Downloaded ${result.totalPages} pages`,
                         }
                       : j,
                   ),
@@ -470,7 +469,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/docs/API.md">Docs</Link>
+              <Link href="/docs">Docs</Link>
             </Button>
 
             {/* destroy a session */}

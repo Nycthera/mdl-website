@@ -20,6 +20,7 @@ import {
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { FaGithub as Github } from "react-icons/fa";
 import { MdBook } from "react-icons/md";
+import { toast } from "sonner";
 import { registerUser } from "@/app/backend/supabaseFunctions/createUser/createUser";
 
 export default function RegisterPage() {
@@ -46,20 +47,50 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      // 1. Create the user in Supabase
-      await registerUser(email, password, username);
+      // 1. Create the user in Supabase. registerUser now tells us
+      //    whether Supabase requires email confirmation before login
+      //    is allowed — this is the production default but OFF in the
+      //    local Supabase CLI, which is why signup→login worked
+      //    locally but silently bounced to /login on Vercel.
+      const result = await registerUser(email, password, username);
 
-      // 2. Immediately sign in with NextAuth credentials provider
-      const result = await signIn("credentials", {
+      // 2. If email confirmation is required, don't even try to
+      //    auto-sign-in — signInWithPassword would return "Email not
+      //    confirmed" and we'd silently bounce to /login with no
+      //    explanation. Instead, redirect to /login with a query
+      //    param so the login page can show a clear "check your
+      //    inbox" message.
+      if (result.emailConfirmationRequired) {
+        toast.success("Account created!", {
+          description: "Check your inbox to confirm your email, then sign in.",
+        });
+        router.push("/login?registered=confirm-email");
+        return;
+      }
+
+      // 3. Email confirmation NOT required — attempt auto-sign-in
+      //    with NextAuth credentials provider so the user lands on
+      //    /dashboard without typing their password again.
+      const signInResult = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
 
-      if (result?.error) {
-        // Account created but auto-sign-in failed — redirect to login
-        router.push("/login");
+      if (signInResult?.error) {
+        // Account was created but auto-sign-in failed for some other
+        // reason (rare — most likely a transient Supabase hiccup).
+        // Surface the actual error to the user instead of silently
+        // bouncing, and send them to /login with a generic
+        // "registered" flag so the login page knows to show a
+        // success-style message.
+        console.error("Auto sign-in failed after signup:", signInResult.error);
+        toast.success("Account created!", {
+          description: "Please sign in to continue.",
+        });
+        router.push("/login?registered=1");
       } else {
+        toast.success("Welcome to MDL!");
         router.push("/dashboard");
         router.refresh();
       }

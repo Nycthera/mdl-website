@@ -57,7 +57,10 @@ export async function GET(req: NextRequest) {
   try {
     parsed = new URL(targetUrl);
   } catch {
-    return NextResponse.json({ error: "invalid url" }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid url" },
+      { status: 400 },
+    );
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -101,8 +104,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-store",
-        "Content-Type":
-          upstream.headers.get("content-type") ?? "application/octet-stream",
+        "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
       },
     });
   }
