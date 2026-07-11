@@ -87,8 +87,16 @@ export async function getWeebCentralSeriesChapters(
 /**
  * Best-effort manga title from the series page itself. Translated from
  * the Python reference's `get_manga_title()`. Returns null (rather than a
- * fabricated guess) if the selector doesn't match — the caller already has
- * a slug-based fallback.
+ * fabricated guess) if no selector matches — the caller falls back to the
+ * URL slug.
+ *
+ * Tries multiple selectors in order, because WeebCentral has changed
+ * their series-page HTML structure more than once and a single brittle
+ * selector was silently returning null — which caused the manga to be
+ * saved with its internal ID as the title (and the .cbz filename to be
+ * that ID). The selector cascade below goes from most-specific to most-
+ * generic, so a future HTML tweak is more likely to still hit one of
+ * them.
  */
 export async function getWeebCentralSeriesTitle(
   seriesUrl: string,
@@ -96,11 +104,81 @@ export async function getWeebCentralSeriesTitle(
   try {
     const html = await fetchWeebCentralHtml(seriesUrl);
     const $ = cheerio.load(html);
-    const title = $("section[x-data] > section:nth-of-type(2) h1")
+
+    // 1. Original selector — the Python reference's `section[x-data] >
+    //    section:nth-of-type(2) h1`. Kept first because if WeebCentral
+    //    hasn't changed, this is still the most precise match.
+    let title = $("section[x-data] > section:nth-of-type(2) h1")
       .first()
       .text()
       .trim();
-    return title || null;
+    if (title) return title;
+
+    // 2. Broader: any h1 inside a section[x-data]. Catches cases where
+    //    the inner section wrapper was removed/renamed but the outer
+    //    section + h1 structure is intact.
+    title = $("section[x-data] h1").first().text().trim();
+    if (title) return title;
+
+    // 3. Even broader: the first h1 on the page. WeebCentral's series
+    //    page has exactly one prominent h1 (the title), so this is safe
+    //    in practice — there's no other h1 competing for "first."
+    title = $("h1").first().text().trim();
+    if (title) return title;
+
+    // 4. Last resort: parse the <title> tag. WeebCentral formats it as
+    //    "<Manga Title> | WeebCentral" — strip the site suffix if
+    //    present. This is the most fragile (depends on their <title>
+    //    format) but better than returning null when the page clearly
+    //    has a title somewhere.
+    const rawTitle = $("title").first().text().trim();
+    if (rawTitle) {
+      const stripped = rawTitle
+        .replace(/\s*\|\s*WeebCentral\s*$/i, "")
+        .replace(/\s*-\s*WeebCentral\s*$/i, "")
+        .trim();
+      if (stripped) return stripped;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Title-cases a URL slug like "Aishiteru-Game-wo-Owarasetai" →
+ * "Aishiteru Game Wo Owarasetai". Used as the fallback when the series
+ * page scrape fails to find a title — better than using the internal ID
+ * (which is what we used to fall back to and which produced .cbz files
+ * named like "01J76XYFSMQKDN389B4FJ32VDH.cbz").
+ *
+ * "wo" stays lowercase per English title-case conventions for short
+ * particles, but we don't bother — the user can rename the file. Point
+ * is to produce something readable, not perfectly typeset.
+ */
+export function slugToTitle(slug: string): string {
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ")
+    .trim();
+}
+
+/**
+ * Extracts the slug portion of a WeebCentral series URL — the
+ * human-readable tail after the ID. For
+ *   https://weebcentral.com/series/01J76XYFSMQKDN389B4FJ32VDH/Aishiteru-Game-wo-Owarasetai
+ * this returns "Aishiteru-Game-wo-Owarasetai". Returns null if the URL
+ * doesn't have a slug (e.g. bare /series/<id> with no trailing path).
+ */
+export function weebCentralSeriesSlug(seriesUrl: string): string | null {
+  try {
+    const parts = new URL(seriesUrl).pathname.split("/").filter(Boolean);
+    // parts = ["series", "<id>", "<slug>"]
+    if (parts.length >= 3 && parts[2]) return parts[2];
+    return null;
   } catch {
     return null;
   }

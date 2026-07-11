@@ -53,6 +53,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { defineTypeOfURL } from "@/app/backend/utils";
+import { buildAndDownloadCbz } from "@/lib/client/build-cbz-in-browser";
 
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
@@ -135,10 +136,13 @@ const jobStatusConfig = {
 
 // API response shape from /api/v1/jobs/:runId
 //
-// Used for both stages: the initial scrape (download-manga) run, and the
-// build-cbz run that's triggered once scraping finishes. Only the latter
-// ever returns `downloadUrl` — a short-lived signed URL pointing directly
-// at Supabase Storage.
+// Used for the scrape (download-manga) run only. When that completes, the
+// dashboard hands off to buildAndDownloadCbz() which fetches the page URLs
+// from /api/v1/download/urls and builds the .cbz entirely in the browser.
+//
+// `downloadUrl` and `filename` are kept in the shape for backwards
+// compatibility but are always null now — the server no longer builds a
+// .cbz or uploads anything to Supabase Storage.
 interface JobStatusResponse {
   id: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -249,22 +253,13 @@ export default function DashboardPage() {
           if (data.status === "completed") {
             stopPolling(jobId);
 
-            if (data.downloadUrl) {
-              // This was a build-cbz run — the archive is ready in
-              // Storage. Navigate the browser straight to the signed URL;
-              // we never proxy the bytes through our own server.
-              const a = document.createElement("a");
-              a.href = data.downloadUrl;
-              a.download = data.filename ?? `${data.mangaName ?? "manga"}.cbz`;
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-
-              toast.success("Download starting...");
-            } else if (data.mangaId) {
-              // This was the initial scrape (download-manga) run — it has
-              // no archive of its own. Chain straight into build-cbz now
-              // that the chapter/page metadata is in the DB.
+            if (data.mangaId) {
+              // The scrape (download-manga) run finished — the page URLs
+              // are now in the `pages` table. The actual image download +
+              // zip happens entirely client-side now: no build-cbz task,
+              // no Supabase Storage upload, no signed URL. The browser
+              // fetches the URLs from /api/v1/download/urls, downloads
+              // every image, zips them with fflate, and saves the .cbz.
               setJobs((prev) =>
                 prev.map((j) =>
                   j.id === jobId
@@ -272,33 +267,50 @@ export default function DashboardPage() {
                         ...j,
                         status: "running",
                         progress: 0,
-                        detail: "Preparing archive...",
+                        detail: "Downloading pages in browser...",
                       }
                     : j,
                 ),
               );
 
               try {
-                const buildRes = await fetch("/api/v1/download/build", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mangaId: data.mangaId }),
+                const result = await buildAndDownloadCbz(data.mangaId, (p) => {
+                  setJobs((prev) =>
+                    prev.map((j) =>
+                      j.id === jobId
+                        ? {
+                            ...j,
+                            progress: Math.round((p.done / p.total) * 100),
+                            detail: p.statusMessage,
+                          }
+                        : j,
+                    ),
+                  );
                 });
 
-                if (!buildRes.ok) {
-                  const err = await buildRes.json().catch(() => ({}));
-                  throw new Error(err.error ?? "Failed to start archive build");
-                }
-
-                const { runId: buildRunId } = await buildRes.json();
-
-                // Swap the job onto the new run id and keep polling.
                 setJobs((prev) =>
                   prev.map((j) =>
-                    j.id === jobId ? { ...j, id: buildRunId } : j,
+                    j.id === jobId
+                      ? {
+                          ...j,
+                          status: "done",
+                          progress: 100,
+                          detail:
+                            result.failedPages > 0
+                              ? `Downloaded ${result.totalPages - result.failedPages}/${result.totalPages} pages`
+                              : `Downloaded ${result.totalPages} pages`,
+                        }
+                      : j,
                   ),
                 );
-                pollJob(buildRunId);
+
+                if (result.failedPages > 0) {
+                  toast.warning(
+                    `Downloaded "${result.filename}" with ${result.failedPages} missing page(s)`,
+                  );
+                } else {
+                  toast.success(`Downloaded "${result.filename}"`);
+                }
               } catch (err) {
                 setJobs((prev) =>
                   prev.map((j) =>
@@ -315,7 +327,7 @@ export default function DashboardPage() {
                 toast.error(
                   err instanceof Error
                     ? err.message
-                    : "Failed to start archive build",
+                    : "Failed to build archive in browser",
                 );
               }
             }

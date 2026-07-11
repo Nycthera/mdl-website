@@ -2,18 +2,13 @@
 //
 // Stage 1 of the download pipeline.
 //
-// PREVIOUSLY (and what /api/v1/download/route.ts's comments still
-// describe as the target design, even though this file never existed):
-// a download was expected to scrape a source and save chapter/page URLs,
-// with the actual image downloading + zipping happening later, on demand,
-// in a separate task. That's what this file (+ build-cbz.ts) implements.
-//
 // This task NEVER fetches image bytes — it only resolves each chapter's
 // list of page image URLs from the source (MangaDex API / WeebCentral
 // HTML / scan-mirror guess-and-check) and writes them into
 // `manga` / `chapters` / `pages` via persistScrapedManga. The actual
-// downloading + zipping happens in build-cbz.ts, triggered separately by
-// POST /api/v1/download/build once this task completes.
+// downloading + zipping happens entirely client-side: the browser asks
+// GET /api/v1/download/urls for the saved URLs, downloads each image,
+// and zips them with fflate into a .cbz. No server-side build step.
 import { task, metadata } from "@trigger.dev/sdk";
 
 import { getMangaDexInfoFromURL, returnGlobFromURL } from "@/app/backend/utils";
@@ -27,6 +22,8 @@ import {
   discoverSeriesUrlFromChapterPage,
   getWeebCentralSeriesChapters,
   getWeebCentralSeriesTitle,
+  weebCentralSeriesSlug,
+  slugToTitle,
 } from "@/app/backend/weebcentral/scrapping/getSeriesChapterList";
 import {
   fetchChapterImageUrls,
@@ -117,7 +114,23 @@ async function resolveWeebCentral(url: string) {
     getWeebCentralSeriesChapters(seriesUrl),
   ]);
 
-  const resolvedTitle = title ?? weebCentralSeriesId(seriesUrl);
+  // Title fallback chain:
+  //   1. Real title scraped from the series page (best).
+  //   2. URL slug, title-cased (e.g. "Aishiteru-Game-wo-Owarasetai" →
+  //      "Aishiteru Game Wo Owarasetai"). Better than the ID because
+  //      it's human-readable and matches what the .cbz filename should
+  //      look like.
+  //   3. Internal WeebCentral ID (worst — last resort when the URL has
+  //      no slug, e.g. a bare /series/<id> with no trailing path).
+  //
+  // PREVIOUSLY this fell straight to (3), so a stale title selector on
+  // WeebCentral's end caused the manga to be saved with its ID as the
+  // title — and the client-side .cbz builder then named the file
+  // "<id>.cbz" because that's what was in the DB. Falling back to the
+  // slug first fixes that.
+  const slug = weebCentralSeriesSlug(seriesUrl);
+  const resolvedTitle =
+    title ?? (slug ? slugToTitle(slug) : weebCentralSeriesId(seriesUrl));
   metadata.set("mangaName", resolvedTitle);
 
   const chapters: ScrapedChapter[] = [];

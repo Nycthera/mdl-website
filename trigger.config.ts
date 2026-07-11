@@ -4,7 +4,7 @@ export default defineConfig({
   project: process.env.TRIGGER_PROJECT_ID ?? "proj_shayrpiwadsohrihzqdu",
   dirs: ["./app/src/trigger"],
   runtime: "node",
-  maxDuration: 3600, // scraping + zipping a long-running series can take a while
+  maxDuration: 3600, // scraping a long-running series' page URLs can take a while (image bytes are downloaded client-side now, not in this task)
   retries: {
     enabledInDev: true,
     default: {

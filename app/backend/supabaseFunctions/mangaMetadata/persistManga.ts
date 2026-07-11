@@ -165,10 +165,10 @@ async function upsertChapterWithPages(
   return { chapterId, pageCount: chapter.imageUrls.length };
 }
 
-/** Records that `userId` has a scrape (and, later, a build) for this
- *  manga, so /api/v1/download/build's ownership check succeeds and the
- *  build-cbz task can look the manga back up by id. Idempotent — reuses
- *  an existing row instead of creating a duplicate per re-download. */
+/** Records that `userId` has a scrape for this manga, so
+ *  /api/v1/download/urls's ownership check succeeds and the browser can
+ *  look the manga back up by id to fetch its page URLs. Idempotent —
+ *  reuses an existing row instead of creating a duplicate per re-download. */
 async function ensureDownloadHistoryRow(
   supabase: ReturnType<typeof createAdminClient>,
   userId: string,
