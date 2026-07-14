@@ -19,7 +19,7 @@
 // involvement for image bytes — it exists solely because browser fetch
 // can't set User-Agent / Referer (forbidden headers) and scan-mirror CDNs
 // 403/404 bare requests + don't send Access-Control-Allow-Origin.
-import { zipSync, type Zippable } from "fflate";
+import { Zip, ZipPassThrough } from "fflate";
 
 /** Shape returned by GET /api/v1/download/urls?mangaId=... */
 export interface UrlsResponse {
@@ -296,17 +296,14 @@ export async function buildAndDownloadCbz(
   // We track failures separately so one bad page doesn't kill the whole
   // archive — the user still gets a .cbz with everything that worked,
   // and we report how many pages were missing.
-  const entries: Zippable = {};
+  const downloaded: Array<{ arcname: string; data: Uint8Array }> = [];
   let done = 0;
   let failed = 0;
 
   await mapWithConcurrency(jobs, 6, async (job) => {
     try {
       const buf = await fetchImageArrayBuffer(job.url);
-      // `store: true` — same as the server used to do. Images are
-      // already compressed; re-compressing them just burns CPU for
-      // ~1-2% size reduction and makes the browser stall.
-      entries[job.arcname] = [new Uint8Array(buf), { level: 0 }];
+      downloaded.push({ arcname: job.arcname, data: new Uint8Array(buf) });
     } catch (err) {
       failed++;
       // Log to console for debugging — the user will see a per-page
@@ -328,12 +325,14 @@ export async function buildAndDownloadCbz(
     throw new Error("Every page failed to download — nothing to zip");
   }
 
-  // ── 4. Zip in-browser with fflate ───────────────────────────────────
-  // fflate's zipSync is synchronous and runs in ~milliseconds for a few
-  // hundred images at store-only level. For very large manga (1000+
-  // pages) this could block the main thread — if that becomes an issue
-  // we can switch to zip (async) with a worker, but for typical manga
-  // sizes sync is fine and keeps the code simple.
+  // ── 4. Zip in-browser with fflate (streaming) ───────────────────────
+  // We use fflate's streaming Zip class instead of zipSync so that the
+  // output is emitted as small chunks rather than allocated as one
+  // contiguous ArrayBuffer. Large manga (hundreds of images, tens of MB)
+  // would cause "RangeError: Array buffer allocation failed" with zipSync
+  // because V8 can't satisfy a single huge allocation. The Blob
+  // constructor accepts an array of chunks and manages non-contiguous
+  // memory itself — no single giant allocation is ever needed.
   onProgress?.({
     done: jobs.length,
     total: jobs.length,
@@ -341,11 +340,35 @@ export async function buildAndDownloadCbz(
     statusMessage: "Packaging archive...",
   });
 
-  const zipped = zipSync(entries, { level: 0 });
+  // Sort downloaded entries by arcname to match the stable order we
+  // established during job preparation.
+  downloaded.sort((a, b) => a.arcname.localeCompare(b.arcname));
+
+  const chunks: Uint8Array[] = await new Promise((resolve, reject) => {
+    const result: Uint8Array[] = [];
+    const zipper = new Zip((err, chunk, final) => {
+      if (err) { reject(err); return; }
+      result.push(chunk);
+      if (final) resolve(result);
+    });
+
+    for (const entry of downloaded) {
+      // ZipPassThrough stores files without re-compressing them.
+      // Images are already compressed; re-compressing burns CPU for
+      // ~1-2% size reduction and would block the main thread.
+      const file = new ZipPassThrough(entry.arcname);
+      zipper.add(file);
+      file.push(entry.data, true); // true = final chunk for this file
+    }
+
+    zipper.end();
+  });
 
   // ── 5. Trigger the .cbz download ────────────────────────────────────
   const filename = `${sanitizeMangaName(data.mangaName)}.cbz`;
-  const blob = new Blob([zipped], {
+  // Blob accepts an array of Uint8Arrays without concatenating them into
+  // one contiguous buffer, so this is safe regardless of archive size.
+  const blob = new Blob(chunks, {
     type: "application/vnd.comicbook+zip",
   });
   const blobUrl = URL.createObjectURL(blob);
@@ -371,7 +394,7 @@ export async function buildAndDownloadCbz(
 
   return {
     filename,
-    bytes: zipped.byteLength,
+    bytes: blob.size,
     totalPages: jobs.length,
     failedPages: failed,
   };
