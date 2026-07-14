@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import {
   Card,
@@ -273,6 +274,21 @@ export default function DashboardPage() {
                 ),
               );
 
+              // The scrape finished — now the browser takes over to
+              // build the .cbz. Drop a breadcrumb so any error during
+              // the browser-side download (CORS, CDN 403, OOM during
+              // zip) is traceable back to which manga triggered it.
+              Sentry.addBreadcrumb({
+                category: "download",
+                message: `Starting client-side .cbz build for manga ${data.mangaId}`,
+                level: "info",
+                data: {
+                  mangaId: data.mangaId,
+                  mangaName: data.mangaName ?? null,
+                  chapterCount: data.chapterCount ?? null,
+                },
+              });
+
               try {
                 const result = await buildAndDownloadCbz(data.mangaId, (p) => {
                   setJobs((prev) =>
@@ -311,6 +327,16 @@ export default function DashboardPage() {
                   toast.success(`Downloaded "${result.filename}"`);
                 }
               } catch (err) {
+                // The browser-side .cbz build threw — capture with
+                // context so the Sentry event includes the manga id,
+                // not just the generic "HTTP 403" message.
+                Sentry.captureException(err, {
+                  tags: { phase: "client-cbz-build" },
+                  extra: {
+                    mangaId: data.mangaId,
+                    mangaName: data.mangaName ?? null,
+                  },
+                });
                 setJobs((prev) =>
                   prev.map((j) =>
                     j.id === jobId
@@ -366,6 +392,18 @@ export default function DashboardPage() {
     setIsAddingDownload(true);
     // Temporary id until the API returns the real runId.
     const tempId = `temp-${crypto.randomUUID()}`;
+
+    // Drop a breadcrumb at the start of every download attempt. If the
+    // job later fails in the scraping stage (Trigger.dev), the Sentry
+    // error event will include this breadcrumb — invaluable for
+    // answering "what URL did the user try to download?" without
+    // having to dig through Trigger.dev logs.
+    Sentry.addBreadcrumb({
+      category: "download",
+      message: `Enqueued download for ${newMangaUrl}`,
+      level: "info",
+      data: { source: typeOfSource, url: newMangaUrl },
+    });
 
     try {
       // Optimistically add a queued job.
@@ -434,6 +472,27 @@ export default function DashboardPage() {
     }
   }, [status, router]);
 
+  // Mirror the server-side Sentry user tagging on the client.
+  //
+  // The server tags events via the NextAuth session callback in
+  // lib/auth.ts, but client-side errors (thrown in this component,
+  // in build-cbz-in-browser.ts, etc.) wouldn't be user-tagged without
+  // this — the server and client Sentry scopes are independent.
+  //
+  // We clear the user on sign-out so events raised after a logout
+  // (e.g. an error in the login page redirect) aren't mis-attributed.
+  useEffect(() => {
+    if (status === "authenticated" && session?.user) {
+      Sentry.setUser({
+        id: session.user.id,
+        email: session.user.email ?? undefined,
+        username: session.user.name ?? undefined,
+      });
+    } else if (status === "unauthenticated") {
+      Sentry.setUser(null);
+    }
+  }, [status, session]);
+
   useEffect(() => {
     async function load() {
       try {
@@ -445,6 +504,9 @@ export default function DashboardPage() {
         setStats(mangaStats);
       } catch (err) {
         console.error("fetch error:", err);
+        Sentry.captureException(err, {
+          tags: { phase: "library-load" },
+        });
         setError(err instanceof Error ? err.message : "Failed to load library");
       } finally {
         setLoading(false);

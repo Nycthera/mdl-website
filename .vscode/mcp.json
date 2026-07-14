@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "Sentry": {
+      "url": "https://mcp.sentry.dev/mcp/make-aguess/mdl-website-nextjs",
+      "type": "http"
+    }
+  }
+}

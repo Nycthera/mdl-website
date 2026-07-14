@@ -10,6 +10,7 @@
 // GET /api/v1/download/urls for the saved URLs, downloads each image,
 // and zips them with fflate into a .cbz. No server-side build step.
 import { task, metadata } from "@trigger.dev/sdk";
+import * as Sentry from "@sentry/nextjs";
 
 import { getMangaDexInfoFromURL, returnGlobFromURL } from "@/app/backend/utils";
 import { makeResultsIntoArrayFormatForDownloadFunction } from "@/app/backend/mangadex/makeResultsIntoArrayFormatForDownloadFunction";
@@ -33,6 +34,52 @@ import {
   persistScrapedManga,
   type ScrapedChapter,
 } from "@/app/backend/supabaseFunctions/mangaMetadata/persistManga";
+
+/**
+ * Sentry DSN — hardcoded rather than read from `process.env` because
+ * the Trigger.dev worker does NOT inherit Next.js's `.env.local` (it
+ * runs as a separate process via `pnpm exec trigger dev`). Reading
+ * from env would silently produce `undefined` and Sentry.init would
+ * no-op without raising. This matches what's already committed in
+ * sentry.server.config.ts.
+ *
+ * The org + project come from next.config.ts's withSentryConfig.
+ */
+const SENTRY_DSN =
+  "https://903376cec7957b7a2486e9937dfb8a90@o4509070019788800.ingest.us.sentry.io/4511717220679680";
+
+/**
+ * Idempotently initialize Sentry inside the Trigger.dev worker.
+ *
+ * This is necessary because the worker is a separate Node.js process
+ * (started by `pnpm exec trigger dev` locally, or by Trigger.dev's
+ * hosted runtime in prod). Next.js's `instrumentation.ts` — which
+ * imports `sentry.server.config` on the Next.js side — is NEVER
+ * loaded in this process. Without this init, errors thrown from the
+ * task body would go to Trigger.dev's dashboard but NOT to Sentry.
+ *
+ * `Sentry.init` is safe to call multiple times — subsequent calls
+ * are no-ops if the DSN matches — so we call it at module load.
+ */
+Sentry.init({
+  dsn: SENTRY_DSN,
+  environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
+  release: process.env.SENTRY_RELEASE,
+  // Lower sample rate in the worker — Trigger.dev already gives us
+  // trace-level visibility into task execution, so Sentry traces here
+  // are redundant. Errors are still 100% captured (no sample rate on
+  // errors).
+  tracesSampleRate:
+    (process.env.VERCEL_ENV ?? process.env.NODE_ENV) === "production"
+      ? 0.05
+      : 0,
+  // Tag every event from the worker so we can filter them in the
+  // Sentry UI: `runtime:trigger-worker` separates these from
+  // `runtime:nextjs-server` events.
+  initialScope: {
+    tags: { runtime: "trigger-worker" },
+  },
+});
 
 export type DownloadSource = "mangadex" | "weebcentral" | "manual";
 
@@ -205,46 +252,111 @@ export const downloadManga = task({
   run: async (payload: DownloadMangaPayload): Promise<DownloadMangaOutput> => {
     const { userId, url, source } = payload;
 
-    metadata.set("kind", "download-manga");
-    metadata.set("progress", 0);
-    metadata.set("stage", "starting");
-    metadata.set("statusMessage", "Starting scrape...");
+    // Wrap the entire task body in a Sentry scope so every event
+    // captured during this run (whether via the explicit
+    // captureException below or via unhandled-rejection hooks Sentry
+    // installs at init) carries the user id, source, and URL.
+    //
+    // We do NOT use Sentry.startSpan() here because Trigger.dev
+    // already wraps the task in its own span — adding a second one
+    // produces nested, confusing traces.
+    return await Sentry.withScope(async () => {
+      Sentry.setUser({ id: userId });
+      Sentry.setTag("source", source);
+      Sentry.setContext("download", {
+        url,
+        source,
+        userId,
+      });
 
-    const resolved =
-      source === "mangadex"
-        ? await resolveMangaDex(url)
-        : source === "weebcentral"
-          ? await resolveWeebCentral(url)
-          : await resolveManual(url);
+      metadata.set("kind", "download-manga");
+      metadata.set("progress", 0);
+      metadata.set("stage", "starting");
+      metadata.set("statusMessage", "Starting scrape...");
 
-    if (resolved.chapters.length === 0) {
-      throw new Error("No chapters could be resolved for this manga");
-    }
+      Sentry.addBreadcrumb({
+        category: "trigger",
+        message: `download-manga task started for ${source}`,
+        level: "info",
+        data: { url, source, userId },
+      });
 
-    metadata.set("stage", "saving");
-    metadata.set("statusMessage", "Saving chapter/page index...");
-    metadata.set("progress", 95);
+      try {
+        const resolved =
+          source === "mangadex"
+            ? await resolveMangaDex(url)
+            : source === "weebcentral"
+              ? await resolveWeebCentral(url)
+              : await resolveManual(url);
 
-    // ── Save URLs ONLY — no image bytes are fetched here. ──────────────
-    const { mangaId, chapterCount } = await persistScrapedManga(userId, {
-      source,
-      sourceMangaId: resolved.sourceMangaId,
-      title: resolved.title,
-      coverUrl: resolved.coverUrl,
-      chapters: resolved.chapters,
+        if (resolved.chapters.length === 0) {
+          throw new Error("No chapters could be resolved for this manga");
+        }
+
+        // Once we know the title, push it onto the Sentry scope so
+        // any error in the persist step below includes it. Without
+        // this, a persistManga failure would show only the URL —
+        // useless when the URL is a long WeebCentral slug.
+        Sentry.setContext("manga", {
+          title: resolved.title,
+          sourceMangaId: resolved.sourceMangaId,
+          chapterCount: resolved.chapters.length,
+        });
+
+        metadata.set("stage", "saving");
+        metadata.set("statusMessage", "Saving chapter/page index...");
+        metadata.set("progress", 95);
+
+        // ── Save URLs ONLY — no image bytes are fetched here. ──────────
+        const { mangaId, chapterCount } = await persistScrapedManga(userId, {
+          source,
+          sourceMangaId: resolved.sourceMangaId,
+          title: resolved.title,
+          coverUrl: resolved.coverUrl,
+          chapters: resolved.chapters,
+        });
+
+        metadata.set("progress", 100);
+        metadata.set("stage", "done");
+        metadata.set("statusMessage", "Scrape complete");
+        metadata.set("mangaName", resolved.title);
+        metadata.set("chapterCount", chapterCount);
+
+        Sentry.addBreadcrumb({
+          category: "trigger",
+          message: `download-manga task completed: ${chapterCount} chapters persisted`,
+          level: "info",
+          data: { mangaId, chapterCount },
+        });
+
+        return {
+          mangaId,
+          mangaName: resolved.title,
+          chapterCount,
+        };
+      } catch (err) {
+        // Capture the error to Sentry BEFORE rethrowing. Trigger.dev
+        // will record the failure in its own dashboard, but without
+        // this capture the Sentry project would never see it — and
+        // the Sentry event is what fires the alert email/Slack.
+        //
+        // We include the stage from metadata so the Sentry event
+        // tells you *where* in the pipeline the failure happened,
+        // not just *what* threw.
+        Sentry.captureException(err, {
+          tags: {
+            source,
+            stage: "scrape",
+          },
+          extra: {
+            url,
+            userId,
+            stage: "scraping",
+          },
+        });
+        throw err;
+      }
     });
-
-    metadata.set("progress", 100);
-    metadata.set("stage", "done");
-    metadata.set("statusMessage", "Scrape complete");
-    metadata.set("mangaName", resolved.title);
-    metadata.set("chapterCount", chapterCount);
-
-    return {
-      mangaId,
-      mangaName: resolved.title,
-      chapterCount,
-    };
   },
 });
 

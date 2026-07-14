@@ -114,10 +114,7 @@ const endpoints: Endpoint[] = [
   },
 ];
 
-const methodConfig: Record<
-  "GET" | "POST",
-  { className: string }
-> = {
+const methodConfig: Record<"GET" | "POST", string> = {
   GET: "text-green-600 bg-green-50 border-green-200",
   POST: "text-blue-600 bg-blue-50 border-blue-200",
 };
@@ -180,9 +177,9 @@ export default function DocsPage() {
         <div>
           <h1 className="text-3xl font-bold">API Documentation</h1>
           <p className="text-muted-foreground mt-2">
-            All endpoints are relative to the API base URL. Authentication
-            uses NextAuth sessions (cookie-based) — all authenticated
-            endpoints require a valid session cookie.
+            All endpoints are relative to the API base URL. Authentication uses
+            NextAuth sessions (cookie-based) — all authenticated endpoints
+            require a valid session cookie.
           </p>
         </div>
 
@@ -200,12 +197,9 @@ export default function DocsPage() {
               <Badge variant="outline" className="text-xs">
                 Auth required
               </Badge>{" "}
-              require a valid NextAuth session cookie. Sessions are
-              established by signing in via the{" "}
-              <Link
-                href="/login"
-                className="text-primary hover:underline"
-              >
+              require a valid NextAuth session cookie. Sessions are established
+              by signing in via the{" "}
+              <Link href="/login" className="text-primary hover:underline">
                 login page
               </Link>{" "}
               (email/password or GitHub OAuth).
@@ -215,8 +209,8 @@ export default function DocsPage() {
               <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 401 Unauthorized
               </code>{" "}
-              response. Requests for resources the user doesn&apos;t own
-              receive a{" "}
+              response. Requests for resources the user doesn&apos;t own receive
+              a{" "}
               <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 403 Forbidden
               </code>
@@ -235,7 +229,7 @@ export default function DocsPage() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <Badge
                     variant="outline"
-                    className={`text-xs font-mono ${methodConfig[ep.method].className}`}
+                    className={`text-xs font-mono ${methodConfig[ep.method]}`}
                   >
                     {ep.method}
                   </Badge>
@@ -295,33 +289,30 @@ export default function DocsPage() {
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
               <span className="font-medium text-foreground">1. Scrape</span> —
-              POST /api/v1/download enqueues a Trigger.dev task that
-              scrapes the source (MangaDex API / WeebCentral HTML / scan
-              mirrors) and saves every chapter&apos;s page image URLs to
-              Postgres. No image bytes are fetched server-side.
+              POST /api/v1/download enqueues a Trigger.dev task that scrapes the
+              source (MangaDex API / WeebCentral HTML / scan mirrors) and saves
+              every chapter&apos;s page image URLs to Postgres. No image bytes
+              are fetched server-side.
             </p>
             <p>
-              <span className="font-medium text-foreground">2. Poll</span> —
-              The client polls GET /api/v1/jobs/:runId every 2.5s for live
-              progress. When status becomes completed, the response
-              includes mangaId.
+              <span className="font-medium text-foreground">2. Poll</span> — The
+              client polls GET /api/v1/jobs/:runId every 2.5s for live progress.
+              When status becomes completed, the response includes mangaId.
             </p>
             <p>
-              <span className="font-medium text-foreground">
-                3. Fetch URLs
-              </span>{" "}
-              — The client calls GET /api/v1/download/urls?mangaId=... to
-              get the saved page URLs.
+              <span className="font-medium text-foreground">3. Fetch URLs</span>{" "}
+              — The client calls GET /api/v1/download/urls?mangaId=... to get
+              the saved page URLs.
             </p>
             <p>
               <span className="font-medium text-foreground">
                 4. Download + zip
               </span>{" "}
               — The browser downloads each image (direct from CDN for
-              CORS-friendly hosts, or through /api/v1/proxy/image for hosts
-              that block CORS), zips them with fflate (store-only), and
-              triggers a .cbz download via a Blob URL. The server never
-              assembles or stores the archive.
+              CORS-friendly hosts, or through /api/v1/proxy/image for hosts that
+              block CORS), zips them with fflate (store-only), and triggers a
+              .cbz download via a Blob URL. The server never assembles or stores
+              the archive.
             </p>
           </CardContent>
         </Card>

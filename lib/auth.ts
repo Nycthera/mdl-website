@@ -1,7 +1,39 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+
+/**
+ * Pushes the authenticated user into Sentry's current scope so every
+ * server-side error captured during this request is tagged with who
+ * triggered it.
+ *
+ * Called from the `jwt` callback after we've definitively resolved the
+ * user id (post-GitHub-user-upsert, post-Credentials-sign-in). We only
+ * set id + email + username — never the access token or anything that
+ * could leak credentials. PII stays minimal: id is a Supabase UUID
+ * (opaque), email is already in Sentry's allowlist of standard user
+ * fields, and `username` is the user's chosen display name.
+ *
+ * Note: the `jwt` callback runs on every authenticated request, not
+ * just at sign-in. `Sentry.setUser` is idempotent and cheap, so calling
+ * it every time is fine — and necessary, because the Sentry scope is
+ * per-request on the server (Vercel reuses the isolate but the scope
+ * resets between requests via Next.js's request scope handling).
+ */
+function setSentryUser(user: {
+  id?: string | null;
+  email?: string | null;
+  name?: string | null;
+}) {
+  if (!user.id) return;
+  Sentry.setUser({
+    id: user.id,
+    email: user.email ?? undefined,
+    username: user.name ?? undefined,
+  });
+}
 
 /**
  * Resolves the NextAuth secret from the environment.
@@ -161,6 +193,10 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // Tag every server-side Sentry event with the now-known user.
+        // Runs once at sign-in; subsequent requests re-derive the user
+        // from the token in `session` below.
+        setSentryUser(user);
       }
       return token;
     },
@@ -168,6 +204,16 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string;
+        // Re-tag the Sentry scope on every session read. The jwt()
+        // callback only sets the user once at sign-in, but the Sentry
+        // scope resets between requests on the server — so without
+        // this, errors raised on a return visit (cookie-based session,
+        // no fresh sign-in) wouldn't be user-tagged.
+        setSentryUser({
+          id: token.id as string,
+          email: session.user.email ?? token.email,
+          name: session.user.name ?? token.name,
+        });
       }
       return session;
     },
