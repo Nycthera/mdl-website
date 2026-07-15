@@ -48,6 +48,12 @@ export async function registerUser(
       data: {
         username,
       },
+      // Override the confirmation link so it points to the current
+      // deployment origin (e.g. https://mdl-website-kappa.vercel.app)
+      // instead of the Supabase dashboard's Site URL (which is
+      // typically http://localhost:3000). Without this, users on
+      // Vercel get a broken localhost confirmation link.
+      emailRedirectTo: `${window.location.origin}/login`,
     },
   });
 

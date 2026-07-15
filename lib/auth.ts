@@ -71,6 +71,25 @@ function resolveNextAuthSecret(): string {
   return "";
 }
 
+/**
+ * Ensure NEXTAUTH_URL is correct in production.
+ *
+ * Vercel always sets VERCEL_URL (e.g. "mdl-website-kappa.vercel.app").
+ * If NEXTAUTH_URL is missing or still points to localhost (common when
+ * .env.local is committed or copied into Vercel env vars), derive it
+ * from VERCEL_URL so that OAuth redirect_uri values are correct.
+ * Must run before authOptions is defined, because NextAuth reads
+ * process.env.NEXTAUTH_URL at config-evaluation time.
+ */
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.VERCEL_URL &&
+  (!process.env.NEXTAUTH_URL ||
+    process.env.NEXTAUTH_URL.startsWith("http://localhost"))
+) {
+  process.env.NEXTAUTH_URL = `https://${process.env.VERCEL_URL}`;
+}
+
 const NEXTAUTH_SECRET = resolveNextAuthSecret();
 
 /** Exported for other modules (e.g. proxy.ts's getToken call) so the
@@ -119,23 +138,41 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const supabase = await createClient();
+        try {
+          const supabase = await createClient();
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: credentials.email,
-          password: credentials.password,
-        });
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: credentials.email,
+            password: credentials.password,
+          });
 
-        if (error || !data.user) return null;
+          if (error) {
+            // Log the real Supabase error instead of silently returning null.
+            // Common causes: "Email not confirmed" (broken confirmation link)
+            // or "Invalid login credentials". Without this log, a 401 is
+            // indistinguishable from a wrong-password failure.
+            console.error(
+              "[authorize] Supabase signInWithPassword failed:",
+              error.message,
+            );
+            return null;
+          }
 
-        // Return a shape that NextAuth expects
-        return {
-          id: data.user.id,
-          email: data.user.email,
-          name:
-            data.user.user_metadata?.username ?? data.user.email?.split("@")[0],
-          image: data.user.user_metadata?.avatar_url,
-        };
+          if (!data.user) return null;
+
+          // Return a shape that NextAuth expects
+          return {
+            id: data.user.id,
+            email: data.user.email,
+            name:
+              data.user.user_metadata?.username ??
+              data.user.email?.split("@")[0],
+            image: data.user.user_metadata?.avatar_url,
+          };
+        } catch (err) {
+          console.error("[authorize] Unexpected error:", err);
+          return null;
+        }
       },
     }),
 
