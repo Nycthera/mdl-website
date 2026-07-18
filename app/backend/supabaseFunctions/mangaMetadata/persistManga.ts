@@ -11,10 +11,17 @@
 // hundreds of images from scan mirrors), so either can be retried/rerun
 // independently without redoing the other.
 //
-// No unique constraint exists on (source, source_manga_id) or
-// (manga_id, source_chapter_id) in the current schema, so this does a
-// manual select-then-insert/update instead of relying on `.upsert()`.
+// A unique constraint on (source, source_manga_id) is added in
+// supabase/migrations/0003_manga_dedupe_constraints.sql (see also
+// 0002_manga_dedupe_cleanup.sql, which merges existing duplicates
+// first), so manga rows
+// are upserted via a real .upsert({ onConflict }) below instead of a
+// manual select-then-insert/update. That manual pattern previously let
+// two concurrent scrapes of the same series both pass the lookup and
+// both insert, and also masked the sourceMangaId-drift bug fixed in
+// download-manga.ts (see weebCentralChapterFallbackId).
 import { createAdminClient } from "@/lib/supabase/server";
+import { slugify } from "@/app/backend/utils";
 
 export type MangaSource = "mangadex" | "weebcentral" | "manual";
 
@@ -48,47 +55,27 @@ async function upsertMangaRow(
     "source" | "sourceMangaId" | "title" | "coverUrl"
   >,
 ): Promise<string> {
-  const { data: existing, error: findErr } = await supabase
+  const { data: upserted, error: upsertErr } = await supabase
     .from("manga")
-    .select("id")
-    .eq("source", scraped.source)
-    .eq("source_manga_id", scraped.sourceMangaId)
-    .limit(1)
-    .maybeSingle();
-
-  if (findErr) throw new Error(`manga lookup failed: ${findErr.message}`);
-
-  if (existing?.id) {
-    const { error: updateErr } = await supabase
-      .from("manga")
-      .update({
+    .upsert(
+      {
+        source: scraped.source,
+        source_manga_id: scraped.sourceMangaId,
         title: scraped.title,
+        slug: slugify(scraped.title),
         cover_url: scraped.coverUrl,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", existing.id);
-
-    if (updateErr) throw new Error(`manga update failed: ${updateErr.message}`);
-
-    return existing.id as string;
-  }
-
-  const { data: inserted, error: insertErr } = await supabase
-    .from("manga")
-    .insert({
-      source: scraped.source,
-      source_manga_id: scraped.sourceMangaId,
-      title: scraped.title,
-      cover_url: scraped.coverUrl,
-    })
+      },
+      { onConflict: "source,source_manga_id" },
+    )
     .select("id")
     .single();
 
-  if (insertErr || !inserted) {
-    throw new Error(`manga insert failed: ${insertErr?.message}`);
+  if (upsertErr || !upserted) {
+    throw new Error(`manga upsert failed: ${upsertErr?.message}`);
   }
 
-  return inserted.id as string;
+  return upserted.id as string;
 }
 
 /** Finds or creates a `chapters` row for (mangaId, label), then replaces
@@ -100,54 +87,34 @@ async function upsertChapterWithPages(
   mangaId: string,
   chapter: ScrapedChapter,
 ): Promise<{ chapterId: string; pageCount: number }> {
-  const { data: existing, error: findErr } = await supabase
+  const { data: upserted, error: upsertErr } = await supabase
     .from("chapters")
-    .select("id")
-    .eq("manga_id", mangaId)
-    .eq("source_chapter_id", chapter.label)
-    .limit(1)
-    .maybeSingle();
-
-  if (findErr) throw new Error(`chapter lookup failed: ${findErr.message}`);
-
-  let chapterId: string;
-
-  if (existing?.id) {
-    chapterId = existing.id as string;
-    const { error: updateErr } = await supabase
-      .from("chapters")
-      .update({
-        chapter_number: chapter.label,
-        page_count: chapter.imageUrls.length,
-      })
-      .eq("id", chapterId);
-    if (updateErr)
-      throw new Error(`chapter update failed: ${updateErr.message}`);
-
-    // Clear old pages before re-inserting — cheap since pages are just
-    // (chapter_id, page_number, image_url) rows, no bytes involved.
-    const { error: deleteErr } = await supabase
-      .from("pages")
-      .delete()
-      .eq("chapter_id", chapterId);
-    if (deleteErr) throw new Error(`page cleanup failed: ${deleteErr.message}`);
-  } else {
-    const { data: inserted, error: insertErr } = await supabase
-      .from("chapters")
-      .insert({
+    .upsert(
+      {
         manga_id: mangaId,
         source_chapter_id: chapter.label,
         chapter_number: chapter.label,
         page_count: chapter.imageUrls.length,
-      })
-      .select("id")
-      .single();
+      },
+      { onConflict: "manga_id,source_chapter_id" },
+    )
+    .select("id")
+    .single();
 
-    if (insertErr || !inserted) {
-      throw new Error(`chapter insert failed: ${insertErr?.message}`);
-    }
-    chapterId = inserted.id as string;
+  if (upsertErr || !upserted) {
+    throw new Error(`chapter upsert failed: ${upsertErr?.message}`);
   }
+  const chapterId = upserted.id as string;
+
+  // Clear old pages before re-inserting — cheap since pages are just
+  // (chapter_id, page_number, image_url) rows, no bytes involved. Safe to
+  // run unconditionally now: a brand-new chapter simply has none to
+  // delete.
+  const { error: deleteErr } = await supabase
+    .from("pages")
+    .delete()
+    .eq("chapter_id", chapterId);
+  if (deleteErr) throw new Error(`page cleanup failed: ${deleteErr.message}`);
 
   if (chapter.imageUrls.length > 0) {
     const rows = chapter.imageUrls.map((imageUrl, index) => ({

@@ -106,6 +106,26 @@ function weebCentralSeriesId(seriesUrl: string): string {
   }
 }
 
+/** `/chapters/<id>` -> `chapter:<id>`. Used ONLY as a last-resort
+ *  sourceMangaId when we have a chapter URL but couldn't discover its
+ *  parent series (see the fallback branch in resolveWeebCentral below).
+ *  Namespaced with a `chapter:` prefix so it can NEVER collide with a
+ *  real weebCentralSeriesId() value — those are bare IDs with no prefix.
+ *  Previously this fallback used the scraped page title instead, which
+ *  varied across scrapes and produced duplicate `manga` rows for series
+ *  that already existed under their real ID (title text isn't a stable
+ *  identifier). Deriving from the URL itself is deterministic and, if the
+ *  same chapter URL is retried, dedupes against itself instead of
+ *  spawning a new row every time. */
+function weebCentralChapterFallbackId(chapterUrl: string): string {
+  try {
+    const parts = new URL(chapterUrl).pathname.split("/").filter(Boolean);
+    return `chapter:${parts[1] ?? chapterUrl}`;
+  } catch {
+    return `chapter:${chapterUrl}`;
+  }
+}
+
 async function resolveMangaDex(url: string) {
   const { id, name } = getMangaDexInfoFromURL(url);
 
@@ -145,8 +165,17 @@ async function resolveWeebCentral(url: string) {
     if (imageUrls.length === 0) {
       throw new Error("Could not resolve any pages for this WeebCentral URL");
     }
+    // IMPORTANT: sourceMangaId must be derived from the URL, never from a
+    // scraped title. Series discovery failed, so we don't know the real
+    // series ID here — but reusing `title` as the identifier is what
+    // caused duplicate `manga` rows in prod: the same series later
+    // resolved normally (via weebCentralSeriesId) got a different,
+    // "real" sourceMangaId, so upsertMangaRow's lookup missed and
+    // inserted a second row instead of updating the first. Namespacing
+    // with `chapter:` guarantees this never collides with a real series
+    // ID, and deriving it from the URL keeps it stable across retries.
     return {
-      sourceMangaId: title,
+      sourceMangaId: weebCentralChapterFallbackId(url),
       title,
       coverUrl: imageUrls[0] ?? null,
       chapters: [{ label: "0001", imageUrls }] as ScrapedChapter[],

@@ -117,6 +117,25 @@ export function getMangaDexInfoFromURL(url: string): {
 }
 
 /**
+ * Turns a manga title into a URL-safe, lowercase, hyphen-separated slug —
+ * e.g. "Kakkou No Iinazuke" -> "kakkou-no-iinazuke". This is the single
+ * place `manga.slug` should ever be derived from; previously nothing in
+ * the codebase wrote this column at all (see persistManga.ts), which is
+ * why existing rows have it either null or holding stale/inconsistent
+ * values (a raw source ID, a raw un-lowercased URL slug, etc.) copied in
+ * by code that's since been removed.
+ */
+export function slugify(title: string): string {
+  return title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents (e.g. "é" -> "e")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
  * Equivalent to the Python:
  *
  * path = urlparse(url).path.strip("/")
