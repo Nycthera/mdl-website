@@ -73,8 +73,7 @@ Sentry.init({
   // 100% in dev (cheap, you want to see everything), 10% in prod
   // (traces are expensive — 0.1 is enough for slow-route diagnosis
   // without blowing the Sentry quota on a personal project).
-  tracesSampleRate:
-    resolveEnvironment() === "production" ? 0.1 : 1.0,
+  tracesSampleRate: resolveEnvironment() === "production" ? 0.1 : 1.0,
 
   // Enable logs to be sent to Sentry
   enableLogs: true,

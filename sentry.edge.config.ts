@@ -29,8 +29,7 @@ Sentry.init({
 
   // 100% in dev, 10% in prod. Edge traces are cheap but plentiful
   // (every middleware hit generates one), so 10% is plenty.
-  tracesSampleRate:
-    resolveEnvironment() === "production" ? 0.1 : 1.0,
+  tracesSampleRate: resolveEnvironment() === "production" ? 0.1 : 1.0,
 
   // Enable logs to be sent to Sentry
   enableLogs: true,

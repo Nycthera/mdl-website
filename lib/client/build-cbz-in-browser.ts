@@ -305,10 +305,9 @@ class StreamingZipWriter {
     // `new Blob([...parts])` is reference-based — it does NOT concatenate
     // the parts into a single buffer. This is the other half of why we
     // avoid the OOM: even at Blob construction time, no giant allocation.
-    return new Blob(
-      [...this.chunks, ...this.centralDirectory, eocd],
-      { type: "application/vnd.comicbook+zip" },
-    );
+    return new Blob([...this.chunks, ...this.centralDirectory, eocd], {
+      type: "application/vnd.comicbook+zip",
+    });
   }
 }
 

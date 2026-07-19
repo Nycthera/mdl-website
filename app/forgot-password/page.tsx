@@ -84,8 +84,8 @@ export default function ForgotPasswordPage() {
               <div className="space-y-4">
                 <div className="rounded-md border border-primary/20 bg-primary/10 p-4 text-sm text-primary">
                   If an account exists for{" "}
-                  <span className="font-medium">{email}</span>, a password
-                  reset link is on its way. Check your inbox (and spam folder).
+                  <span className="font-medium">{email}</span>, a password reset
+                  link is on its way. Check your inbox (and spam folder).
                 </div>
                 <Button asChild className="w-full">
                   <Link href="/login">
@@ -109,11 +109,7 @@ export default function ForgotPasswordPage() {
                     />
                   </div>
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading}
-                  >
+                  <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? (
                       "Sending..."
                     ) : (

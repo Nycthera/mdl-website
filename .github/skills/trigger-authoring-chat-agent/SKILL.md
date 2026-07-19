@@ -24,12 +24,19 @@ If those paths don't exist, `@trigger.dev/sdk` isn't installed yet — install i
 ## Common mistakes
 
 - **CRITICAL: forgetting `...chat.toStreamTextOptions()`.**
+
   ```ts
   // Wrong - compaction / steering / background injection silently no-op
   return streamText({ model, messages, abortSignal: signal });
   // Correct - spread FIRST so explicit overrides win
-  return streamText({ ...chat.toStreamTextOptions(), model, messages, abortSignal: signal });
+  return streamText({
+    ...chat.toStreamTextOptions(),
+    model,
+    messages,
+    abortSignal: signal,
+  });
   ```
+
   It wires the `prepareStep` callback behind compaction, mid-turn steering, and background
   injection, injects the system prompt from `chat.prompt()`, resolves the registry model, and adds
   telemetry. Omitting it makes all of those silently no-op with no error.
