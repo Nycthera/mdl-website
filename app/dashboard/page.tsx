@@ -55,6 +55,7 @@ import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { defineTypeOfURL } from "@/app/backend/utils";
 import { buildAndDownloadCbz } from "@/lib/client/build-cbz-in-browser";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // --- Types ---
 type MangaStatus = "up-to-date" | "behind" | "checking";
@@ -170,6 +171,22 @@ function apiToLocalStatus(s: JobStatusResponse["status"]): Job["status"] {
     case "failed":
       return "failed";
   }
+}
+
+function StatsCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-4 rounded-full" />
+      </CardHeader>
+
+      <CardContent>
+        <Skeleton className="h-8 w-14" />
+        <Skeleton className="mt-2 h-3 w-24" />
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function DashboardPage() {
@@ -311,9 +328,10 @@ export default function DashboardPage() {
                           ...j,
                           status: "done",
                           progress: 100,
-                          detail: result.failedPages > 0
-                            ? `Downloaded ${result.totalPages - result.failedPages}/${result.totalPages} pages`
-                            : `Downloaded ${result.totalPages} pages`,
+                          detail:
+                            result.failedPages > 0
+                              ? `Downloaded ${result.totalPages - result.failedPages}/${result.totalPages} pages`
+                              : `Downloaded ${result.totalPages} pages`,
                         }
                       : j,
                   ),
@@ -577,71 +595,76 @@ export default function DashboardPage() {
 
         {/* Stats */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Tracked
-              </CardTitle>
-              <Library className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">
-                {loading ? "—" : stats.total}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                manga in library
-              </p>
-            </CardContent>
-          </Card>
+          {loading ? (
+            <>
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+            </>
+          ) : (
+            <>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Total Tracked
+                  </CardTitle>
+                  <Library className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold">{stats.total}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    manga in library
+                  </p>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Up to Date
-              </CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">
-                {loading ? "—" : stats.upToDate}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                no new chapters
-              </p>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Up to Date
+                  </CardTitle>
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold">{stats.upToDate}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    no new chapters
+                  </p>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Behind
-              </CardTitle>
-              <AlertCircle className="h-4 w-4 text-amber-600" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">
-                {loading ? "—" : stats.behind}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                need downloading
-              </p>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Behind
+                  </CardTitle>
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold">{stats.behind}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    need downloading
+                  </p>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Active Jobs
-              </CardTitle>
-              <Activity className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{runningJobs}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                currently running
-              </p>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Active Jobs
+                  </CardTitle>
+                  <Activity className="h-4 w-4 text-blue-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold">{runningJobs}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    currently running
+                  </p>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
         {/* Add to Queue */}

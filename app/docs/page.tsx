@@ -164,7 +164,7 @@ export default function DocsPage() {
             </Badge>
           </div>
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/">
+            <Link href="/dashboard" className="flex items-center">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to home
             </Link>
