@@ -13,7 +13,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true",
-    "start_fe_and_be": "concurrently -k -n FRONTEND,BACKEND -c blue,green \"pnpm dev\" \"pnpm exec trigger dev\""
+    "start_fe_and_be": "concurrently -k -n FRONTEND,BACKEND -c blue,green \"pnpm dev\" \"pnpm exec trigger dev\"",
+    "typecheck": "rimraf tsconfig.tsbuildinfo && tsc --noEmit"
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",
@@ -45,7 +46,8 @@
     "typescript-eslint": "^8.60.1",
     "undici-types": "^8.4.1",
     "websocket": "^1.0.35",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "rimraf": "^6.1.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
