@@ -389,10 +389,22 @@ export const downloadManga = task({
   },
 });
 
+/** Tag applied to every run so /api/v1/jobs/:id can verify the
+ *  requesting session actually owns the run before returning its
+ *  status. Without this, runId is just an opaque Trigger.dev id —
+ *  anything guessable/leaked (browser history, a shared link, logs)
+ *  would let ANY signed-in user poll ANY other user's job and see
+ *  their manga name / progress / output. See jobs/[id]/route.ts. */
+export function userTagForRun(userId: string): string {
+  return `user:${userId}`;
+}
+
 /** Enqueues a download-manga run and returns its Trigger.dev run id. */
 export async function enqueueDownload(
   payload: DownloadMangaPayload,
 ): Promise<string> {
-  const handle = await downloadManga.trigger(payload);
+  const handle = await downloadManga.trigger(payload, {
+    tags: [userTagForRun(payload.userId)],
+  });
   return handle.id;
 }

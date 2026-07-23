@@ -28,6 +28,7 @@
 import { NextResponse } from "next/server";
 import { runs } from "@trigger.dev/sdk";
 import { getSessionUserId } from "@/lib/get-session";
+import { userTagForRun } from "@/app/src/trigger/download-manga";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -91,6 +92,24 @@ export async function GET(
   try {
     run = await runs.retrieve(runId);
   } catch {
+    return NextResponse.json(
+      { error: "run not found", status: "failed" },
+      { status: 404 },
+    );
+  }
+
+  // ── Ownership check ──────────────────────────────────────────────
+  // A run id is just an opaque string handed back from POST
+  // /api/v1/download — nothing about it proves the caller is the user
+  // who enqueued it. Without this check, any signed-in user who
+  // obtained (guessed, was shared, scraped from logs) another user's
+  // runId could poll it and read their in-progress manga name,
+  // progress, and final output. enqueueDownload() tags every run with
+  // `user:<userId>` specifically so we can verify that here. Return
+  // 404 rather than 403 so we don't confirm/deny the run's existence
+  // to someone who doesn't own it.
+  const runTags = (run.tags ?? []) as string[];
+  if (!runTags.includes(userTagForRun(userId))) {
     return NextResponse.json(
       { error: "run not found", status: "failed" },
       { status: 404 },
