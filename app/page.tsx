@@ -1,152 +1,70 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { animate, stagger } from "animejs";
+import { MdBook } from "react-icons/md";
+import { ArrowRight, Download, Library, ShieldCheck } from "lucide-react";
+import { FaGithub as Github } from "react-icons/fa";
 
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { MdBook } from "react-icons/md";
-import {
-  Download,
-  FileText,
-  Database,
-  Workflow,
-  ArrowRight,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { revealIn } from "@/lib/animations";
 
-import { toast } from "sonner";
+const features = [
+  {
+    icon: Library,
+    title: "Multiple sources, one library",
+    description:
+      "Pull chapters from MangaDex, WeebCentral, or a manual mirror URL. Everything lands in the same dashboard, tracked the same way.",
+  },
+  {
+    icon: Download,
+    title: "Built for long jobs",
+    description:
+      "Scrapes run as background tasks with live progress, so a 40-chapter series doesn't time out halfway through like a plain serverless request would.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Private by design",
+    description:
+      "Page images are proxied straight to your browser and zipped into a .cbz client-side — the raw image bytes never touch our storage.",
+  },
+];
 
-export default function Home() {
-  const featuresRef = useRef<HTMLDivElement>(null);
-  const aboutRef = useRef<HTMLElement>(null);
-  const router = useRouter();
-  const { data: session } = useSession();
-  const loggedIn = !!session;
-
+export default function HomePage() {
   useEffect(() => {
-    // Navbar
-    animate("nav", {
-      translateY: [-20, 0],
-      opacity: [0, 1],
-      duration: 600,
-      ease: "out(3)",
-    });
-
-    // Hero stagger
-    animate(".hero-item", {
-      translateY: [40, 0],
-      opacity: [0, 1],
-      duration: 800,
-      delay: stagger(120, { start: 200 }),
-      ease: "out(3)",
-    });
-
-    // Feature cards on scroll
-    const featureObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            animate(".feature-card", {
-              translateY: [50, 0],
-              opacity: [0, 1],
-              duration: 700,
-              delay: stagger(100),
-              ease: "out(3)",
-            });
-            featureObserver.disconnect();
-          }
-        });
-      },
-      { threshold: 0.15 },
-    );
-
-    if (featuresRef.current) featureObserver.observe(featuresRef.current);
-
-    // About card on scroll
-    const aboutObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            animate(".about-card", {
-              translateY: [40, 0],
-              opacity: [0, 1],
-              duration: 700,
-              ease: "out(3)",
-            });
-            aboutObserver.disconnect();
-          }
-        });
-      },
-      { threshold: 0.2 },
-    );
-
-    if (aboutRef.current) aboutObserver.observe(aboutRef.current);
-
-    return () => {
-      featureObserver.disconnect();
-      aboutObserver.disconnect();
-    };
+    revealIn(".hero-eyebrow", { duration: 500 });
+    revealIn(".hero-title", { duration: 700, delay: 80, y: 18 });
+    revealIn(".hero-sub", { duration: 600, delay: 200 });
+    revealIn(".hero-cta", { duration: 500, delay: 320, staggerMs: 60 });
+    revealIn(".feature-card", { duration: 600, delay: 250, staggerMs: 90 });
   }, []);
 
-  useEffect(() => {
-    if (session) {
-      toast("You're already logged in", {
-        id: "logged-in-toast",
-        description: "Head back to your dashboard.",
-        action: {
-          label: "Go to Dashboard",
-          onClick: () => {
-            toast.dismiss("logged-in-toast");
-            router.push("/dashboard");
-          },
-        },
-        duration: 8000,
-        style: {
-          background: "hsl(var(--card))",
-          border: "1px solid hsl(var(--border))",
-          color: "hsl(var(--card-foreground))",
-        },
-        classNames: {
-          description: "!text-muted-foreground",
-          actionButton: "!bg-primary !text-primary-foreground",
-        },
-      });
-    }
-
-    return () => {
-      toast.dismiss("logged-in-toast");
-    };
-  }, [session, router]);
-
   return (
-    <main className="min-h-screen bg-background">
-      {/* Navbar */}
-      <nav
-        style={{ opacity: 0 }}
-        className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur"
-      >
-        <div className="container mx-auto flex h-16 items-center justify-between">
-          <div className="flex items-center gap-2">
+    <div className="min-h-screen bg-background">
+      <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
+          <Link href="/" className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" asChild>
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" asChild>
               <Link href="/docs">Docs</Link>
             </Button>
-            <Button asChild className="rounded-xl">
-              <Link href={loggedIn ? "/dashboard" : "/login"}>
-                {loggedIn ? "Dashboard" : "Login"}
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/login">Log in</Link>
+            </Button>
+            <Button size="sm" asChild>
+              <Link href="/register">
+                Get started
+                <ArrowRight />
               </Link>
             </Button>
           </div>
@@ -154,118 +72,94 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-linear-to-b from-primary/10 via-transparent to-transparent" />
-        <div className="container mx-auto py-28 text-center">
-          <Badge
-            variant="secondary"
-            className="hero-item mb-4"
-            style={{ opacity: 0 }}
-          >
-            Manga Download Toolkit
-          </Badge>
+      <section className="container mx-auto flex flex-col items-center px-4 pt-24 pb-20 text-center">
+        <span
+          className="hero-eyebrow text-xs font-semibold tracking-widest text-muted-foreground uppercase"
+          style={{ opacity: 0 }}
+        >
+          Manga download library
+        </span>
 
-          <h1 className="hero-item opacity-0 text-5xl md:text-7xl font-extrabold tracking-tight">
-            Build and manage
-            <span className="block text-primary">media workflows</span>
-          </h1>
+        <h1
+          className="hero-title mt-5 max-w-3xl text-4xl font-bold tracking-tight text-balance md:text-6xl"
+          style={{ opacity: 0 }}
+        >
+          Your manga, archived and ready to read offline.
+        </h1>
 
-          <p className="hero-item opacity-0 mx-auto mt-6 max-w-2xl text-muted-foreground text-lg">
-            MDL provides APIs, background workers, archive generation, and
-            workflow tracking for modern media automation.
-          </p>
+        <p
+          className="hero-sub mt-6 max-w-xl text-base text-muted-foreground md:text-lg"
+          style={{ opacity: 0 }}
+        >
+          Point MDL at a series, pick a source, and walk away. It resolves every
+          chapter in the background and hands you back clean .cbz files.
+        </p>
 
-          <div className="hero-item opacity-0 mt-8 flex justify-center gap-4">
-            <Button size="lg" asChild>
-              <Link href={loggedIn ? "/dashboard" : "/register"}>
-                Get Started
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-            <Button variant="outline" size="lg" asChild>
-              <Link href="/docs">
-                <FileText className="mr-2 h-4 w-4" />
-                API Docs
-              </Link>
-            </Button>
-          </div>
+        <div
+          className="hero-cta mt-9 flex flex-wrap items-center justify-center gap-3"
+          style={{ opacity: 0 }}
+        >
+          <Button size="lg" asChild>
+            <Link href="/register">
+              Get started
+              <ArrowRight />
+            </Link>
+          </Button>
+          <Button size="lg" variant="outline" asChild>
+            <Link href="/docs">Read the docs</Link>
+          </Button>
         </div>
       </section>
 
       {/* Features */}
-      <section ref={featuresRef} className="container mx-auto py-20">
-        <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold">Everything you need</h2>
-          <p className="mt-3 text-muted-foreground">
-            Built for developers who automate content workflows.
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          {[
-            {
-              icon: <Database className="h-8 w-8 text-primary" />,
-              title: "API First",
-              desc: "Integrate MDL into existing tools and services.",
-            },
-            {
-              icon: <Workflow className="h-8 w-8 text-primary" />,
-              title: "Background Jobs",
-              desc: "Queue and monitor long-running downloads.",
-            },
-            {
-              icon: <Download className="h-8 w-8 text-primary" />,
-              title: "Archive Creation",
-              desc: "Generate CBZ files and package media automatically.",
-            },
-            {
-              icon: <Database className="h-8 w-8 text-primary" />,
-              title: "Progress Tracking",
-              desc: "Resume workflows and keep records of processed items.",
-            },
-          ].map(({ icon, title, desc }) => (
+      <section className="container mx-auto px-4 pb-24">
+        <div className="grid gap-5 md:grid-cols-3">
+          {features.map(({ icon: Icon, title, description }) => (
             <Card key={title} className="feature-card" style={{ opacity: 0 }}>
               <CardHeader>
-                {icon}
-                <CardTitle>{title}</CardTitle>
-                <CardDescription>{desc}</CardDescription>
+                <div className="mb-1 flex h-10 w-10 items-center justify-center border border-primary/20 bg-primary/5">
+                  <Icon className="h-5 w-5 text-primary" />
+                </div>
+                <CardTitle className="text-base">{title}</CardTitle>
+                <CardDescription>{description}</CardDescription>
               </CardHeader>
             </Card>
           ))}
         </div>
       </section>
 
-      {/* About */}
-      <section ref={aboutRef} className="container mx-auto pb-24">
-        <Card
-          className="about-card border-primary/20 bg-primary/5"
-          style={{ opacity: 0 }}
-        >
-          <CardHeader>
-            <CardTitle>Who is MDL for?</CardTitle>
-            <CardDescription>
-              Developers, hobbyists, and automation enthusiasts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Whether you're building download pipelines, creating archive
-              workflows, or automating content management, MDL provides a
-              lightweight foundation that is easy to extend.
-            </p>
-          </CardContent>
-        </Card>
-      </section>
-      <footer className="border-t border-border/40 py-12">
-        <div className="container mx-auto">
-          <p className="text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} MDL. All rights reserved. Licensed{" "}
-            <a href="/license" className="text-primary hover:underline">
-              here
+      <footer className="border-t">
+        <div className="container mx-auto flex flex-col items-center gap-4 px-4 py-10 text-sm text-muted-foreground md:flex-row md:justify-between">
+          <div className="flex items-center gap-2">
+            <MdBook className="h-4 w-4 text-primary" />
+            <span>MDL — manga download library</span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <Link href="/docs" className="hover:text-foreground">
+              Docs
+            </Link>
+            <Link href="/license" className="hover:text-foreground">
+              License
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground">
+              Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-foreground">
+              Terms
+            </Link>
+            <a
+              href="https://github.com/Nycthera"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 hover:text-foreground"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
             </a>
-          </p>
+          </div>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }

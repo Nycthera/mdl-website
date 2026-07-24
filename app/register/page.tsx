@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -17,14 +17,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Loader2, Check, X } from "lucide-react";
 import { FaGithub as Github } from "react-icons/fa";
 import { MdBook } from "react-icons/md";
 import { toast } from "sonner";
 import { registerUser } from "@/app/backend/supabaseFunctions/createUser/createUser";
+import { revealIn, shake, popIn } from "@/lib/animations";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const usernameRef = useRef<HTMLInputElement>(null);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -33,7 +35,28 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [githubLoading, setGithubLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Live feedback as the user types the confirmation field, instead of
+  // only finding out about a mismatch after submitting the whole form.
+  const passwordsMismatch = confirm.length > 0 && password !== confirm;
+  const passwordsMatch = confirm.length > 0 && password === confirm;
+
+  useEffect(() => {
+    revealIn(".auth-left", { duration: 700 });
+    revealIn(".auth-card", { duration: 700, delay: 100 });
+    revealIn(".auth-field", { delay: 250, staggerMs: 70 });
+    usernameRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (error) shake(".register-error");
+  }, [error]);
+
+  useEffect(() => {
+    if (passwordsMatch) popIn(".match-indicator");
+  }, [passwordsMatch]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +125,7 @@ export default function RegisterPage() {
   };
 
   const handleGithubSignIn = () => {
+    setGithubLoading(true);
     signIn("github", { callbackUrl: "/dashboard" });
   };
 
@@ -109,7 +133,10 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-background">
       <div className="grid min-h-screen lg:grid-cols-2">
         {/* Left Side */}
-        <div className="hidden lg:flex flex-col justify-between border-r bg-muted/30 p-12">
+        <div
+          className="auth-left hidden lg:flex flex-col justify-between border-r bg-muted/30 p-12"
+          style={{ opacity: 0 }}
+        >
           <div>
             <div className="mb-12 flex items-center gap-2">
               <MdBook className="h-8 w-8 text-primary" />
@@ -158,7 +185,7 @@ export default function RegisterPage() {
 
         {/* Right Side */}
         <div className="flex items-center justify-center p-6">
-          <Card className="w-full max-w-md">
+          <Card className="auth-card w-full max-w-md" style={{ opacity: 0 }}>
             <CardHeader className="space-y-2">
               <CardTitle className="text-3xl">Create an account</CardTitle>
               <CardDescription>Get started with MDL for free</CardDescription>
@@ -168,15 +195,24 @@ export default function RegisterPage() {
               <div className="space-y-6">
                 <Button
                   variant="outline"
-                  className="w-full"
+                  className="auth-field w-full"
+                  style={{ opacity: 0 }}
                   type="button"
                   onClick={handleGithubSignIn}
+                  disabled={githubLoading || isLoading}
                 >
-                  <Github className="mr-2 h-4 w-4" />
-                  Continue with GitHub
+                  {githubLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Github className="mr-2 h-4 w-4" />
+                  )}
+                  {githubLoading ? "Redirecting..." : "Continue with GitHub"}
                 </Button>
 
-                <div className="flex items-center gap-3">
+                <div
+                  className="auth-field flex items-center gap-3"
+                  style={{ opacity: 0 }}
+                >
                   <Separator className="flex-1" />
                   <span className="text-xs text-muted-foreground">
                     OR CONTINUE WITH EMAIL
@@ -185,10 +221,11 @@ export default function RegisterPage() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
+                  <div className="auth-field space-y-2" style={{ opacity: 0 }}>
                     <Label htmlFor="username">Username</Label>
                     <Input
                       id="username"
+                      ref={usernameRef}
                       type="text"
                       placeholder="Your username"
                       value={username}
@@ -197,7 +234,7 @@ export default function RegisterPage() {
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="auth-field space-y-2" style={{ opacity: 0 }}>
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
@@ -209,7 +246,7 @@ export default function RegisterPage() {
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="auth-field space-y-2" style={{ opacity: 0 }}>
                     <Label htmlFor="password">Password</Label>
                     <div className="relative">
                       <Input
@@ -236,7 +273,7 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="auth-field space-y-2" style={{ opacity: 0 }}>
                     <Label htmlFor="confirm">Confirm password</Label>
                     <div className="relative">
                       <Input
@@ -245,13 +282,17 @@ export default function RegisterPage() {
                         placeholder="••••••••"
                         value={confirm}
                         onChange={(e) => setConfirm(e.target.value)}
+                        aria-invalid={passwordsMismatch}
+                        className={
+                          passwordsMismatch ? "border-b-destructive" : undefined
+                        }
                         required
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="absolute right-1 top-1/2 -translate-y-1/2"
+                        className="absolute right-8 top-1/2 -translate-y-1/2"
                         onClick={() => setShowConfirm(!showConfirm)}
                       >
                         {showConfirm ? (
@@ -260,18 +301,40 @@ export default function RegisterPage() {
                           <Eye className="h-4 w-4" />
                         )}
                       </Button>
+                      {passwordsMatch && (
+                        <Check
+                          className="match-indicator absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 text-green-600"
+                          style={{ opacity: 0 }}
+                        />
+                      )}
+                      {passwordsMismatch && (
+                        <X className="absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 text-destructive" />
+                      )}
                     </div>
+                    {passwordsMismatch && (
+                      <p className="text-xs text-destructive">
+                        Passwords don't match yet
+                      </p>
+                    )}
                   </div>
 
                   {error && (
-                    <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                    <div className="register-error rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                       {error}
                     </div>
                   )}
 
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="auth-field w-full"
+                    style={{ opacity: 0 }}
+                    disabled={isLoading || githubLoading}
+                  >
                     {isLoading ? (
-                      "Creating account..."
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating account...
+                      </>
                     ) : (
                       <>
                         Create Account
@@ -280,6 +343,24 @@ export default function RegisterPage() {
                     )}
                   </Button>
                 </form>
+
+                <p className="text-center text-xs text-muted-foreground">
+                  By creating an account, you agree to our{" "}
+                  <Link
+                    href="/terms"
+                    className="underline hover:text-foreground"
+                  >
+                    Terms
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    className="underline hover:text-foreground"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
 
                 <p className="text-center text-sm text-muted-foreground">
                   Already have an account?{" "}
