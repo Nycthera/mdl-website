@@ -542,7 +542,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       {/* Navbar */}
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
-        <div className="container mx-auto flex h-16 items-center justify-between">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
@@ -566,16 +566,17 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <div className="container mx-auto py-8 space-y-8">
+      <div className="container mx-auto py-8 space-y-8 px-4">
         {/* Page header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <h1 className="text-2xl font-bold sm:text-3xl">Dashboard</h1>
             <p className="text-muted-foreground mt-1">
               Track and manage your manga library.
             </p>
           </div>
           <Button
+            className="w-full sm:w-auto"
             onClick={() => {
               setLoading(true);
               setError("");

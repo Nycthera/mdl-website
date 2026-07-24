@@ -6,7 +6,7 @@ export default function Privacy() {
     <div className="min-h-screen bg-background">
       {/* Navbar */}
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
-        <div className="container mx-auto flex h-16 items-center justify-between">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
@@ -17,7 +17,7 @@ export default function Privacy() {
       <div className="container mx-auto max-w-3xl py-16 px-4">
         {/* Header */}
         <div className="mb-10">
-          <h1 className="text-4xl font-bold mb-2">Privacy Policy</h1>
+          <h1 className="text-3xl font-bold mb-2 sm:text-4xl">Privacy Policy</h1>
           <p className="text-muted-foreground">Last updated July 2026</p>
         </div>
 

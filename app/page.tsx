@@ -149,7 +149,7 @@ export default function HomePage() {
               Terms
             </Link>
             <a
-              href="https://github.com/Nycthera"
+              href="https://github.com/Nycthera/mdl-website"
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 hover:text-foreground"

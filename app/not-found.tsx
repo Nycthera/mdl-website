@@ -16,7 +16,7 @@ export default function NotFound() {
   return (
     <div className="min-h-screen bg-background">
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
-        <div className="container mx-auto flex h-16 items-center justify-between">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>

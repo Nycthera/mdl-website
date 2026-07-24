@@ -155,24 +155,24 @@ export default function DocsPage() {
     <div className="min-h-screen bg-background">
       {/* Navbar */}
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
-        <div className="container mx-auto flex h-16 items-center justify-between">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
-            <Badge variant="outline" className="ml-2 text-xs">
+            <Badge variant="outline" className="ml-2 hidden text-xs sm:inline-flex">
               API Docs
             </Badge>
           </div>
           <Button variant="ghost" size="sm" asChild>
             <Link href="/dashboard" className="flex items-center">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to home
+              <ArrowLeft className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Back to home</span>
             </Link>
           </Button>
         </div>
       </nav>
 
-      <div className="container mx-auto py-8 space-y-8 max-w-4xl">
+      <div className="container mx-auto py-8 space-y-8 px-4 max-w-4xl">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold">API Documentation</h1>
