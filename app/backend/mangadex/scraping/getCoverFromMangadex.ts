@@ -55,9 +55,7 @@ export async function getCoverFromMangadex(
     throw new Error(`MangaDex returned a non-JSON response for ${mangaId}`);
   }
 
-  const cover = json.data?.relationships?.find(
-    (r) => r.type === "cover_art",
-  );
+  const cover = json.data?.relationships?.find((r) => r.type === "cover_art");
 
   const fileName = cover?.attributes?.fileName;
 

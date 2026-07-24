@@ -44,8 +44,7 @@ export async function GET(req: Request) {
     // is down" from "MangaDex doesn't have this manga".
     return NextResponse.json(
       {
-        error:
-          err instanceof Error ? err.message : "failed to fetch cover",
+        error: err instanceof Error ? err.message : "failed to fetch cover",
       },
       { status: 502 },
     );

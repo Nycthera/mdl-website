@@ -62,8 +62,7 @@ export async function POST(req: Request) {
   } catch (err) {
     return NextResponse.json(
       {
-        error:
-          err instanceof Error ? err.message : "failed to resolve manga",
+        error: err instanceof Error ? err.message : "failed to resolve manga",
       },
       { status: 502 },
     );

@@ -163,58 +163,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!upstream.ok) {
-    // Pass the upstream status through so the client can react to 429
-    // etc. without fabricating a fake 502.
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "no-store",
-        "Content-Type":
-          upstream.headers.get("content-type") ?? "application/octet-stream",
-      },
-    });
-  }
-
-  // ── 4. Stream the body back with CORS + cache headers ──────────────
-  // Copy through content-type and content-length so the browser knows
-  // what it's getting. Set a long browser cache so re-builds of the same
-  // manga don't re-hit the proxy for every page — these images are
-  // immutable (same URL = same bytes).
-  const responseHeaders = new Headers();
-  responseHeaders.set(
-    "Content-Type",
-    upstream.headers.get("content-type") ?? "application/octet-stream",
-  );
-  responseHeaders.set("Access-Control-Allow-Origin", "*");
-  responseHeaders.set("Cache-Control", "private, max-age=3600");
-
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) {
-    responseHeaders.set("Content-Length", contentLength);
-  }
-
-  return new Response(upstream.body, {
-    status: 200,
-    headers: responseHeaders,
-  });
-}
-
-  if (!upstream.ok) {
-    // Pass the upstream status through so the client can react to 429
-    // etc. without fabricating a fake 502.
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "no-store",
-        "Content-Type":
-          upstream.headers.get("content-type") ?? "application/octet-stream",
-      },
-    });
-  }
-
   // ── 4. Stream the body back with CORS + cache headers ──────────────
   // Copy through content-type and content-length so the browser knows
   // what it's getting. Set a long browser cache so re-builds of the same
