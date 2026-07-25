@@ -44,6 +44,7 @@ import {
   LogOut,
   Plus,
   Loader2,
+  Settings,
 } from "lucide-react";
 
 import {
@@ -550,6 +551,11 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
               <Link href="/docs">Docs</Link>
+            </Button>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/dashboard/preferences" aria-label="Preferences">
+                <Settings className="h-4 w-4" />
+              </Link>
             </Button>
 
             {/* destroy a session */}

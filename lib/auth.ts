@@ -227,7 +227,7 @@ export const authOptions: NextAuthOptions = {
     },
 
     // Called after a user signs in — attach extra fields to the JWT
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         // Tag every server-side Sentry event with the now-known user.
@@ -235,6 +235,16 @@ export const authOptions: NextAuthOptions = {
         // from the token in `session` below.
         setSentryUser(user);
       }
+
+      // Fired when the client calls `update(...)` from next-auth/react
+      // (the preferences page does this after saving a new display name),
+      // since the JWT strategy has no server-side session to invalidate —
+      // without this, a changed username wouldn't show up anywhere until
+      // the user signed out and back in.
+      if (trigger === "update" && session?.name) {
+        token.name = session.name;
+      }
+
       return token;
     },
     // Called whenever a session is checked — expose JWT fields to the client

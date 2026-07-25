@@ -107,6 +107,13 @@ body {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Compact density preference, set via components/providers/density-provider.tsx.
+   Tightens the rem-based Tailwind spacing/type scale app-wide by nudging the
+   root font-size down, instead of hand-editing every component's padding. */
+html[data-density="compact"] {
+  font-size: 15px;
+}
+
 :root {
   --background: oklch(0.9788 0.0114 356.992);
   --foreground: oklch(0.4015 0.0503 345.5685);
