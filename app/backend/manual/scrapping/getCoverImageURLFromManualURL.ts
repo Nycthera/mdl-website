@@ -1,13 +1,19 @@
-import axios from "axios";
 import { returnGlobFromURL } from "@/app/backend/utils";
+import {
+  MIRROR_BASE_URLS,
+  checkMirrorUrl,
+} from "@/app/backend/manual/scrapping/mirrorProbe";
 
-const baseUrls = [
-  "https://scans.lastation.us/manga/",
-  "https://official.lowee.us/manga/",
-  "https://hot.planeptune.us/manga/",
-  "https://scans-hot.planeptune.us/manga/",
-];
-
+/**
+ * Finds the cover (page 1 of chapter 1) for a manga slug across the known
+ * scan mirrors. Reuses checkMirrorUrl from mirrorProbe.ts rather than
+ * rolling its own axios call — that used to duplicate the mirror list,
+ * headers, and a GET-as-existence-check that never consumed its response
+ * stream, which let axios's timeout kill an abandoned stream and throw an
+ * uncaught 'error' event ~8s after a request that had already succeeded.
+ * checkMirrorUrl now does a HEAD check (no body ever transferred) with a
+ * safe, stream-draining GET fallback — fixed once, shared everywhere.
+ */
 export async function findCoverImageURL(
   inputUrl: string,
 ): Promise<string | null> {
@@ -17,33 +23,16 @@ export async function findCoverImageURL(
     return null;
   }
 
-  for (const baseUrl of baseUrls) {
+  for (const baseUrl of MIRROR_BASE_URLS) {
     const candidateUrl = `${baseUrl}${mangaSlug}/0001-001.png`;
 
-    try {
-      const response = await axios.get(candidateUrl, {
-        validateStatus: () => true,
-        responseType: "stream",
-        timeout: 8000,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-          Referer: "https://mangadex.org/",
-          Accept:
-            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
-      });
+    const ok = await checkMirrorUrl(candidateUrl);
+    console.log(
+      `[findCoverImageURL] ${candidateUrl} -> ${ok ? "found" : "miss"}`,
+    );
 
-      console.log(`[findCoverImageURL] ${candidateUrl} -> ${response.status}`);
-
-      if (response.status === 200) {
-        return candidateUrl;
-      }
-    } catch (err) {
-      console.error(
-        `[findCoverImageURL] ${candidateUrl} -> ERROR`,
-        err instanceof Error ? err.message : err,
-      );
+    if (ok) {
+      return candidateUrl;
     }
   }
 

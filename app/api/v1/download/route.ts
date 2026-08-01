@@ -18,6 +18,7 @@ import {
   type DownloadSource,
 } from "@/app/src/trigger/download-manga";
 import { defineTypeOfURL } from "@/app/backend/utils";
+import { upsertDownloadJob } from "@/app/backend/supabaseFunctions/downloadJobs/downloadJobs";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -74,6 +75,21 @@ export async function POST(req: Request) {
       },
       { status: 502 },
     );
+  }
+
+  try {
+    await upsertDownloadJob({
+      userId,
+      runId,
+      url,
+      source,
+      status: "queued",
+      progress: 0,
+      stage: "queued",
+      statusMessage: "Waiting to start...",
+    });
+  } catch (err) {
+    console.error("Failed to persist queued download job:", err);
   }
 
   return NextResponse.json({ runId });
