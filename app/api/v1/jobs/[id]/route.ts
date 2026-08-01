@@ -29,6 +29,10 @@ import { NextResponse } from "next/server";
 import { runs } from "@trigger.dev/sdk";
 import { getSessionUserId } from "@/lib/get-session";
 import { userTagForRun } from "@/app/src/trigger/download-manga";
+import {
+  toDownloadJobStatus,
+  upsertDownloadJob,
+} from "@/app/backend/supabaseFunctions/downloadJobs/downloadJobs";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -137,6 +141,22 @@ export async function GET(
     } else {
       error = "download failed";
     }
+  }
+
+  const persistedStatus = toDownloadJobStatus(status);
+  if (persistedStatus) {
+    await upsertDownloadJob({
+      userId,
+      runId,
+      status: persistedStatus,
+      progress,
+      mangaId,
+      mangaName,
+      chapterCount: meta.chapterCount ?? output.chapterCount ?? null,
+      stage: meta.stage ?? null,
+      statusMessage: meta.statusMessage ?? null,
+      error: error ?? null,
+    });
   }
 
   return NextResponse.json({

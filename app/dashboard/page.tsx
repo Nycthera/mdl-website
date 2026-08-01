@@ -44,6 +44,7 @@ import {
   LogOut,
   Plus,
   Loader2,
+  Settings,
 } from "lucide-react";
 
 import {
@@ -55,10 +56,14 @@ import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { defineTypeOfURL } from "@/app/backend/utils";
 import { buildAndDownloadCbz } from "@/lib/client/build-cbz-in-browser";
+import {
+  formatDashboardDate,
+  getMangaStatus,
+  summarizeLibrary,
+} from "@/lib/dashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // --- Types ---
-type MangaStatus = "up-to-date" | "behind" | "checking";
 type Source = "mangadex" | "manual" | "weebcentral";
 
 interface Job {
@@ -73,6 +78,26 @@ interface Job {
   detail?: string;
   /** Estimated time remaining, e.g. "~1m left" */
   eta?: string;
+}
+
+interface JobApiResponse {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress: number;
+  mangaName?: string | null;
+  mangaId?: string | null;
+  chapterCount?: number | null;
+  downloadUrl?: string | null;
+  filename?: string | null;
+  error?: string | null;
+  stage?: string | null;
+  statusMessage?: string | null;
+  source: Source;
+  url: string;
+}
+
+interface JobListResponse {
+  jobs: JobApiResponse[];
 }
 
 interface Stats {
@@ -95,21 +120,6 @@ const sourceConfig: Record<Source, { label: string; className: string }> = {
     className: "text-sky-600 bg-sky-50 border-sky-200",
   },
 };
-
-// --- Helpers ---
-function getMangaStatus(manga: Manga): MangaStatus {
-  if (manga.latest_chapter_local < manga.latest_chapter_from_mangadex)
-    return "behind";
-  return "up-to-date";
-}
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 const statusConfig = {
   "up-to-date": {
@@ -206,11 +216,34 @@ export default function DashboardPage() {
   const runningJobs = jobs.filter(
     (j) => j.status === "running" || j.status === "queued",
   ).length;
+  const librarySummary = summarizeLibrary(manga);
 
   // Track polling intervals so we can clean them up.
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
     new Map(),
   );
+
+  const loadDashboardData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [library, mangaStats] = await Promise.all([
+        getMangaLibrary(),
+        getMangaStats(),
+      ]);
+      setManga(library);
+      setStats(mangaStats);
+    } catch (err) {
+      console.error("fetch error:", err);
+      Sentry.captureException(err, {
+        tags: { phase: "library-load" },
+      });
+      setError(err instanceof Error ? err.message : "Failed to load library");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   /** Stop polling for a job. */
   const stopPolling = useCallback((jobId: string) => {
@@ -388,6 +421,45 @@ export default function DashboardPage() {
     [stopPolling],
   );
 
+  const loadJobs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/jobs");
+      if (!res.ok) {
+        throw new Error("Failed to load download jobs");
+      }
+
+      const data: JobListResponse = await res.json();
+      setJobs(
+        data.jobs.map((job) => ({
+          id: job.id,
+          manga: job.mangaName ?? "Preparing download...",
+          chapters: job.chapterCount ? `${job.chapterCount} chapters` : "",
+          status: apiToLocalStatus(job.status),
+          progress: job.progress,
+          source: job.source,
+          detail:
+            job.status === "running"
+              ? (job.statusMessage ?? `${job.progress}%`)
+              : job.status === "failed"
+                ? (job.error ?? "failed")
+                : undefined,
+        })),
+      );
+
+      data.jobs.forEach((job) => {
+        const localStatus = apiToLocalStatus(job.status);
+        if (localStatus === "running" || localStatus === "queued") {
+          pollJob(job.id);
+        }
+      });
+    } catch (err) {
+      console.error("fetch jobs error:", err);
+      Sentry.captureException(err, {
+        tags: { phase: "job-load" },
+      });
+    }
+  }, [pollJob]);
+
   // Clean up all pollers on unmount.
   useEffect(() => {
     const pollers = pollersRef.current;
@@ -399,8 +471,8 @@ export default function DashboardPage() {
 
   async function handleAddDownload(e: React.FormEvent) {
     e.preventDefault();
-    console.log("should be working... download should prep");
-    const typeOfSource = defineTypeOfURL(newMangaUrl);
+    const trimmedUrl = newMangaUrl.trim();
+    const typeOfSource = defineTypeOfURL(trimmedUrl);
 
     if (!typeOfSource) {
       toast.error("Unsupported URL type");
@@ -418,9 +490,9 @@ export default function DashboardPage() {
     // having to dig through Trigger.dev logs.
     Sentry.addBreadcrumb({
       category: "download",
-      message: `Enqueued download for ${newMangaUrl}`,
+      message: `Enqueued download for ${trimmedUrl}`,
       level: "info",
-      data: { source: typeOfSource, url: newMangaUrl },
+      data: { source: typeOfSource, url: trimmedUrl },
     });
 
     try {
@@ -443,7 +515,7 @@ export default function DashboardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: newMangaUrl,
+          url: trimmedUrl,
           source: typeOfSource,
         }),
       });
@@ -512,27 +584,12 @@ export default function DashboardPage() {
   }, [status, session]);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const [library, mangaStats] = await Promise.all([
-          getMangaLibrary(),
-          getMangaStats(),
-        ]);
-        setManga(library);
-        setStats(mangaStats);
-      } catch (err) {
-        console.error("fetch error:", err);
-        Sentry.captureException(err, {
-          tags: { phase: "library-load" },
-        });
-        setError(err instanceof Error ? err.message : "Failed to load library");
-      } finally {
-        setLoading(false);
-      }
-    }
+    loadDashboardData();
+  }, [loadDashboardData]);
 
-    load();
-  }, []);
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
 
   const filtered = manga.filter((m) =>
     m.manga_name.toLowerCase().includes(search.toLowerCase()),
@@ -550,6 +607,11 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
               <Link href="/docs">Docs</Link>
+            </Button>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/dashboard/preferences" aria-label="Preferences">
+                <Settings className="h-4 w-4" />
+              </Link>
             </Button>
 
             {/* destroy a session */}
@@ -572,15 +634,13 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">Dashboard</h1>
             <p className="text-muted-foreground mt-1">
-              Track and manage your manga library.
+              Track your library, backlog, and download queue from one place.
             </p>
           </div>
           <Button
             className="w-full sm:w-auto"
-            onClick={() => {
-              setLoading(true);
-              setError("");
-            }}
+            onClick={loadDashboardData}
+            disabled={loading}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             Check all for updates
@@ -668,6 +728,128 @@ export default function DashboardPage() {
           )}
         </div>
 
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              href: "/dashboard/health",
+              icon: Activity,
+              title: "Health overview",
+              description:
+                "See backlog, freshness, and the biggest gaps first.",
+            },
+            {
+              href: "/dashboard/behind",
+              icon: Archive,
+              title: "Behind titles",
+              description:
+                "Jump straight to series that need a new download pass.",
+            },
+            {
+              href: "/dashboard/sources",
+              icon: Library,
+              title: "Source guide",
+              description: "Review the URLs and source types the app accepts.",
+            },
+            {
+              href: "/dashboard/preferences",
+              icon: Settings,
+              title: "Preferences",
+              description: "Tune defaults, notifications, theme, and density.",
+            },
+          ].map(({ href, icon: Icon, title, description }) => (
+            <Card key={title} className="border-dashed">
+              <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2">
+                <div>
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    {title}
+                  </CardTitle>
+                  <CardDescription>{description}</CardDescription>
+                </div>
+                <Icon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <Button variant="ghost" size="sm" asChild className="px-0">
+                  <Link href={href}>Open section</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Backlog focus</CardTitle>
+              <CardDescription>
+                The titles with the largest gap between local and source
+                chapters.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {librarySummary.mostBehind.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nothing is behind right now.
+                </p>
+              ) : (
+                librarySummary.mostBehind.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {item.manga_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Checked {formatDashboardDate(item.date_last_checked)}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">
+                      {item.chapterGap} gap
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recently checked</CardTitle>
+              <CardDescription>
+                The latest rows that were touched during a refresh.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {librarySummary.recentlyChecked.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No library data loaded yet.
+                </p>
+              ) : (
+                librarySummary.recentlyChecked.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {item.manga_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Local {item.latest_chapter_local} · Source{" "}
+                        {item.latest_chapter_from_mangadex}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">
+                      {formatDashboardDate(item.date_last_checked)}
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Add to Queue */}
         <Card>
           <CardHeader>
@@ -731,7 +913,7 @@ export default function DashboardPage() {
               Download Queue
             </CardTitle>
             <CardDescription>
-              Currently running and queued jobs.
+              Running, queued, and finished jobs saved to your account.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -862,7 +1044,7 @@ export default function DashboardPage() {
                           {m.manga_name}
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
-                          {formatDate(m.date_last_checked)}
+                          {formatDashboardDate(m.date_last_checked)}
                         </TableCell>
                         <TableCell className="text-center text-sm">
                           {m.latest_chapter_local}

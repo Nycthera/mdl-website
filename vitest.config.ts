@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -8,8 +8,9 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
-    include: ["**/*.{test,spec}.ts"],
-    exclude: ["node_modules", "dist", ".next"],
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./tests/setup.ts"],
+    include: ["tests/**/*.test.{ts,tsx}"],
   },
 });

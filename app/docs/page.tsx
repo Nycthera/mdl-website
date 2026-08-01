@@ -43,6 +43,34 @@ const endpoints: Endpoint[] = [
   },
   {
     method: "GET",
+    path: "/api/v1/jobs",
+    description:
+      "Returns the current user's saved download jobs, including queued, running, completed, and failed runs. The dashboard uses this to restore queue/history state after refresh.",
+    auth: true,
+    response: `{
+  "jobs": [
+    {
+      "id": "run_abc123...",
+      "status": "pending|running|completed|failed",
+      "progress": 0,
+      "mangaName": "Onii-chan wa Oshimai",
+      "mangaId": "469b30be-...",
+      "chapterCount": 12,
+      "stage": "resolving-chapters",
+      "statusMessage": "Resolved 3/12 chapters...",
+      "source": "mangadex",
+      "url": "https://mangadex.org/title/...",
+      "downloadUrl": null,
+      "filename": null,
+      "error": null
+    }
+  ]
+}`,
+    notes:
+      "Active jobs are refreshed from Trigger.dev before the response is returned, so the saved queue stays current even after a tab is closed and reopened.",
+  },
+  {
+    method: "GET",
     path: "/api/v1/jobs/:runId",
     description:
       "Polls a Trigger.dev run's status + progress. Used during the scrape stage to show live progress (downloading chapters / resolving pages). Returns mangaId when the scrape completes — the client then fetches URLs and builds the .cbz in-browser.",
@@ -159,7 +187,10 @@ export default function DocsPage() {
           <div className="flex items-center gap-2">
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
-            <Badge variant="outline" className="ml-2 hidden text-xs sm:inline-flex">
+            <Badge
+              variant="outline"
+              className="ml-2 hidden text-xs sm:inline-flex"
+            >
               API Docs
             </Badge>
           </div>

@@ -28,13 +28,49 @@ export const MIRROR_REQUEST_HEADERS = {
   Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
 };
 
-/** Single GET against one candidate URL. Returns true on 2xx-3xx, false otherwise (incl. network errors/timeouts). */
+/**
+ * Single existence check against one candidate URL. Returns true on
+ * 2xx-3xx, false otherwise (incl. network errors/timeouts).
+ *
+ * Tries HEAD first — it gets us the status code without the CDN ever
+ * sending an image body, so there's nothing to consume/drain/leak and no
+ * risk of axios's `timeout` firing mid-download.
+ *
+ * Some mirrors occasionally reject HEAD (405, or a body-less 200 that
+ * some CDN edge nodes mishandle for HEAD specifically), so on anything
+ * other than a clean 2xx-3xx from HEAD we retry once with GET as a
+ * stream — but unlike the old code, we immediately destroy that stream
+ * the moment we have the status, since we still never read the body.
+ * Skipping that destroy is what used to let axios's 8s timeout kill an
+ * abandoned, unconsumed stream and throw an uncaught 'error' event
+ * roughly 8.1s after a request that had already succeeded — the ❌s in
+ * the trace despite status 200.
+ */
 export async function checkMirrorUrl(url: string): Promise<boolean> {
+  const head = typeof client.head === "function" ? client.head.bind(client) : null;
+
+  if (head) {
+    try {
+      const res = await head(url, { headers: MIRROR_REQUEST_HEADERS });
+      if (res.status >= 200 && res.status < 400) return true;
+    } catch {
+      // fall through to the GET fallback below
+    }
+  }
+
   try {
     const res = await client.get(url, {
       responseType: "stream",
       headers: MIRROR_REQUEST_HEADERS,
     });
+
+    if (res?.data && typeof res.data.on === "function") {
+      res.data.on("error", () => {});
+    }
+    if (res?.data && typeof res.data.destroy === "function") {
+      res.data.destroy();
+    }
+
     return res.status >= 200 && res.status < 400;
   } catch {
     return false;
