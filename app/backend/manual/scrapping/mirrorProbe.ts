@@ -47,11 +47,15 @@ export const MIRROR_REQUEST_HEADERS = {
  * the trace despite status 200.
  */
 export async function checkMirrorUrl(url: string): Promise<boolean> {
-  try {
-    const res = await client.head(url, { headers: MIRROR_REQUEST_HEADERS });
-    if (res.status >= 200 && res.status < 400) return true;
-  } catch {
-    // fall through to the GET fallback below
+  const head = typeof client.head === "function" ? client.head.bind(client) : null;
+
+  if (head) {
+    try {
+      const res = await head(url, { headers: MIRROR_REQUEST_HEADERS });
+      if (res.status >= 200 && res.status < 400) return true;
+    } catch {
+      // fall through to the GET fallback below
+    }
   }
 
   try {
@@ -59,8 +63,14 @@ export async function checkMirrorUrl(url: string): Promise<boolean> {
       responseType: "stream",
       headers: MIRROR_REQUEST_HEADERS,
     });
-    res.data.on("error", () => {});
-    res.data.destroy();
+
+    if (res?.data && typeof res.data.on === "function") {
+      res.data.on("error", () => {});
+    }
+    if (res?.data && typeof res.data.destroy === "function") {
+      res.data.destroy();
+    }
+
     return res.status >= 200 && res.status < 400;
   } catch {
     return false;
