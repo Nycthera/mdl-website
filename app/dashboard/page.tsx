@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -27,6 +28,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { MdBook } from "react-icons/md";
@@ -45,7 +55,11 @@ import {
   Plus,
   Loader2,
   Settings,
+  ArrowUpDown,
+  Command,
+  X,
 } from "lucide-react";
+import { CommandPalette } from "@/components/command-palette";
 
 import {
   getMangaLibrary,
@@ -217,6 +231,34 @@ export default function DashboardPage() {
     (j) => j.status === "running" || j.status === "queued",
   ).length;
   const librarySummary = summarizeLibrary(manga);
+
+  // --- New UI/UX state ---
+  const [activeTab, setActiveTab] = useState("overview");
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [insightView, setInsightView] = useState<"behind" | "recent">("behind");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [sort, setSort] = useState<{
+    key: "name" | "checked" | "status";
+    dir: "asc" | "desc";
+  }>({ key: "name", dir: "asc" });
+
+  function toggleSort(key: "name" | "checked" | "status") {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
+    );
+  }
+
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Track polling intervals so we can clean them up.
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
@@ -539,6 +581,8 @@ export default function DashboardPage() {
 
       // Clear the input — the job is now tracked in the queue.
       setNewMangaUrl("");
+      setAddDialogOpen(false);
+      toast.success("Added to download queue");
     } catch (err) {
       console.error(err);
       toast.error(
@@ -595,6 +639,18 @@ export default function DashboardPage() {
     m.manga_name.toLowerCase().includes(search.toLowerCase()),
   );
 
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    if (sort.key === "name") {
+      cmp = a.manga_name.localeCompare(b.manga_name);
+    } else if (sort.key === "checked") {
+      cmp = a.date_last_checked - b.date_last_checked;
+    } else {
+      cmp = getMangaStatus(a).localeCompare(getMangaStatus(b));
+    }
+    return sort.dir === "asc" ? cmp : -cmp;
+  });
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navbar */}
@@ -604,9 +660,27 @@ export default function DashboardPage() {
             <MdBook className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">MDL</span>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/docs">Docs</Link>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden text-muted-foreground sm:flex"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search className="mr-1.5 h-3.5 w-3.5" />
+              Search
+              <kbd className="ml-2 flex items-center gap-0.5 rounded border border-border px-1 text-[10px] normal-case opacity-70">
+                <Command className="h-2.5 w-2.5" />K
+              </kbd>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="sm:hidden"
+              aria-label="Search"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/preferences" aria-label="Preferences">
@@ -618,6 +692,7 @@ export default function DashboardPage() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Sign out"
               onClick={async () => {
                 await signOut({ callbackUrl: "/login" });
               }}
@@ -628,7 +703,22 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <div className="container mx-auto py-8 space-y-8 px-4">
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        manga={manga.map((m) => ({
+          id: m.id,
+          name: m.manga_name,
+          subtitle: getMangaStatus(m) === "behind" ? "Behind" : "Up to date",
+        }))}
+        onSelectManga={() => {
+          setActiveTab("library");
+        }}
+        onAddDownload={() => setAddDialogOpen(true)}
+        onCheckAllUpdates={loadDashboardData}
+      />
+
+      <div className="container mx-auto space-y-6 px-4 py-8">
         {/* Page header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -637,14 +727,74 @@ export default function DashboardPage() {
               Track your library, backlog, and download queue from one place.
             </p>
           </div>
-          <Button
-            className="w-full sm:w-auto"
-            onClick={loadDashboardData}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Check all for updates
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={loadDashboardData}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Check all for updates</span>
+              <span className="sm:hidden">Refresh</span>
+            </Button>
+
+            <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add manga
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add to download queue</DialogTitle>
+                  <DialogDescription>
+                    Paste a MangaDex, manual, or WeebCentral link to queue a new
+                    download.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleAddDownload} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="manga-url">Manga / chapter URL</Label>
+                    <Input
+                      id="manga-url"
+                      type="url"
+                      placeholder="https://mangadex.org/title/..."
+                      value={newMangaUrl}
+                      onChange={(e) => setNewMangaUrl(e.target.value)}
+                      autoFocus
+                      required
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>Supported sources:</span>
+                    {Object.values(sourceConfig).map(({ label, className }) => (
+                      <Badge
+                        key={label}
+                        variant="outline"
+                        className={`text-xs ${className}`}
+                      >
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={isAddingDownload || !newMangaUrl.trim()}
+                    >
+                      {isAddingDownload ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-2 h-4 w-4" />
+                      )}
+                      Add to queue
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Error */}
@@ -654,445 +804,503 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {loading ? (
-            <>
-              <StatsCardSkeleton />
-              <StatsCardSkeleton />
-              <StatsCardSkeleton />
-              <StatsCardSkeleton />
-            </>
-          ) : (
-            <>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Tracked
-                  </CardTitle>
-                  <Library className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold">{stats.total}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    manga in library
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Up to Date
-                  </CardTitle>
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold">{stats.upToDate}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    no new chapters
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Behind
-                  </CardTitle>
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold">{stats.behind}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    need downloading
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Active Jobs
-                  </CardTitle>
-                  <Activity className="h-4 w-4 text-blue-600" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold">{runningJobs}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    currently running
-                  </p>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              href: "/dashboard/health",
-              icon: Activity,
-              title: "Health overview",
-              description:
-                "See backlog, freshness, and the biggest gaps first.",
-            },
-            {
-              href: "/dashboard/behind",
-              icon: Archive,
-              title: "Behind titles",
-              description:
-                "Jump straight to series that need a new download pass.",
-            },
-            {
-              href: "/dashboard/sources",
-              icon: Library,
-              title: "Source guide",
-              description: "Review the URLs and source types the app accepts.",
-            },
-            {
-              href: "/dashboard/preferences",
-              icon: Settings,
-              title: "Preferences",
-              description: "Tune defaults, notifications, theme, and density.",
-            },
-          ].map(({ href, icon: Icon, title, description }) => (
-            <Card key={title} className="border-dashed">
-              <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2">
-                <div>
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {title}
-                  </CardTitle>
-                  <CardDescription>{description}</CardDescription>
+        {/* Compact stat strip — one card, four columns, instead of four
+            separate cards. Same information, a fraction of the chrome. */}
+        {loading ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+          </div>
+        ) : (
+          <Card className="py-0">
+            <CardContent className="grid grid-cols-2 divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+              {[
+                {
+                  label: "Total tracked",
+                  value: stats.total,
+                  icon: Library,
+                  iconClass: "text-muted-foreground",
+                },
+                {
+                  label: "Up to date",
+                  value: stats.upToDate,
+                  icon: CheckCircle2,
+                  iconClass: "text-green-600",
+                },
+                {
+                  label: "Behind",
+                  value: stats.behind,
+                  icon: AlertCircle,
+                  iconClass: "text-amber-600",
+                },
+                {
+                  label: "Active jobs",
+                  value: runningJobs,
+                  icon: Activity,
+                  iconClass: "text-blue-600",
+                },
+              ].map(({ label, value, icon: Icon, iconClass }) => (
+                <div key={label} className="flex flex-col gap-2 px-6 py-5">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+                    <span className="text-xs">{label}</span>
+                  </div>
+                  <p className="text-2xl font-bold">{value}</p>
                 </div>
-                <Icon className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <Button variant="ghost" size="sm" asChild className="px-0">
-                  <Link href={href}>Open section</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Backlog focus</CardTitle>
-              <CardDescription>
-                The titles with the largest gap between local and source
-                chapters.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {librarySummary.mostBehind.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nothing is behind right now.
-                </p>
-              ) : (
-                librarySummary.mostBehind.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-4 rounded-lg border p-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {item.manga_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Checked {formatDashboardDate(item.date_last_checked)}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0">
-                      {item.chapterGap} gap
-                    </Badge>
-                  </div>
-                ))
-              )}
+              ))}
             </CardContent>
           </Card>
+        )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Recently checked</CardTitle>
-              <CardDescription>
-                The latest rows that were touched during a refresh.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {librarySummary.recentlyChecked.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No library data loaded yet.
-                </p>
-              ) : (
-                librarySummary.recentlyChecked.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-4 rounded-lg border p-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {item.manga_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Local {item.latest_chapter_local} · Source{" "}
-                        {item.latest_chapter_from_mangadex}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0">
-                      {formatDashboardDate(item.date_last_checked)}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Add to Queue */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-primary" />
-              Add to Queue
-            </CardTitle>
-            <CardDescription>
-              Paste a MangaDex, manual, or WeebCentral link to queue a new
-              download.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              onSubmit={handleAddDownload}
-              className="flex flex-col sm:flex-row gap-3 sm:items-end"
-            >
-              <div className="flex-1 space-y-1.5">
-                <Label htmlFor="manga-url">Manga / chapter URL</Label>
-                <Input
-                  id="manga-url"
-                  type="url"
-                  placeholder="https://mangadex.org/title/..."
-                  value={newMangaUrl}
-                  onChange={(e) => setNewMangaUrl(e.target.value)}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={isAddingDownload || !newMangaUrl.trim()}
-              >
-                {isAddingDownload ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Add to queue
-              </Button>
-            </form>
-            <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-muted-foreground">
-              <span>Supported sources:</span>
-              {Object.values(sourceConfig).map(({ label, className }) => (
-                <Badge
-                  key={label}
-                  variant="outline"
-                  className={`text-xs ${className}`}
-                >
-                  {label}
+        {/* Section tabs — Overview / Library / Queue replace what used to be
+            nine stacked cards in a single column. */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="overview">
+              <Activity className="h-3.5 w-3.5" />
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="library">
+              <MdBook className="h-3.5 w-3.5" />
+              Library
+              {stats.total > 0 && (
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0">
+                  {stats.total}
                 </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="queue">
+              <Download className="h-3.5 w-3.5" />
+              Queue
+              {runningJobs > 0 && (
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0">
+                  {runningJobs}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Overview tab: quick links + backlog/recent insight */}
+          <TabsContent value="overview" className="space-y-6">
+            <div className="flex flex-wrap gap-2">
+              {[
+                {
+                  href: "/dashboard/health",
+                  icon: Activity,
+                  title: "Health overview",
+                },
+                {
+                  href: "/dashboard/behind",
+                  icon: Archive,
+                  title: "Behind titles",
+                },
+                {
+                  href: "/dashboard/sources",
+                  icon: Library,
+                  title: "Source guide",
+                },
+                {
+                  href: "/dashboard/preferences",
+                  icon: Settings,
+                  title: "Preferences",
+                },
+              ].map(({ href, icon: Icon, title }) => (
+                <Button key={title} variant="outline" size="sm" asChild>
+                  <Link href={href} className="flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" />
+                    {title}
+                  </Link>
+                </Button>
               ))}
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Download Queue */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5 text-primary" />
-              Download Queue
-            </CardTitle>
-            <CardDescription>
-              Running, queued, and finished jobs saved to your account.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {jobs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                No active jobs.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {jobs.map((job) => (
-                  <div
-                    key={job.id}
-                    className="flex items-center gap-4 rounded-lg border p-3"
+            <Card>
+              <CardHeader className="space-y-4">
+                <div>
+                  <CardTitle>
+                    {insightView === "behind"
+                      ? "Backlog focus"
+                      : "Recently checked"}
+                  </CardTitle>
+                  <CardDescription>
+                    {insightView === "behind"
+                      ? "The titles with the largest gap between local and source chapters."
+                      : "The latest rows that were touched during a refresh."}
+                  </CardDescription>
+                </div>
+                <div className="inline-flex w-fit shrink-0 gap-1 rounded-md border border-border p-0.5">
+                  <Button
+                    size="xs"
+                    variant={insightView === "behind" ? "secondary" : "ghost"}
+                    className="rounded-md"
+                    onClick={() => setInsightView("behind")}
                   >
-                    <Archive className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate">
-                          {job.manga}
-                        </p>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] px-1.5 py-0 shrink-0 ${sourceConfig[job.source].className}`}
-                        >
-                          {sourceConfig[job.source].label}
+                    Behind
+                  </Button>
+
+                  <Button
+                    size="xs"
+                    variant={insightView === "recent" ? "secondary" : "ghost"}
+                    className="rounded-md"
+                    onClick={() => setInsightView("recent")}
+                  >
+                    Recent
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {insightView === "behind" ? (
+                  librarySummary.mostBehind.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nothing is behind right now.
+                    </p>
+                  ) : (
+                    librarySummary.mostBehind.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {item.manga_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Checked{" "}
+                            {formatDashboardDate(item.date_last_checked)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0">
+                          {item.chapterGap} gap
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {job.chapters}
-                        {job.detail ? ` · ${job.detail}` : ""}
-                      </p>
-                    </div>
-                    {job.status === "running" && (
-                      <div className="w-28 hidden sm:block">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-primary rounded-full transition-all"
-                            style={{ width: `${job.progress}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1 text-right">
-                          {job.progress}%{job.eta ? ` · ${job.eta}` : ""}
+                    ))
+                  )
+                ) : librarySummary.recentlyChecked.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No library data loaded yet.
+                  </p>
+                ) : (
+                  librarySummary.recentlyChecked.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {item.manga_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Local {item.latest_chapter_local} · Source{" "}
+                          {item.latest_chapter_from_mangadex}
                         </p>
                       </div>
-                    )}
-                    <Badge
-                      variant="outline"
-                      className={`capitalize text-xs shrink-0 ${jobStatusConfig[job.status]}`}
-                    >
-                      {job.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Library Table */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <MdBook className="h-5 w-5 text-primary" />
-                  Manga Library
-                </CardTitle>
-                <CardDescription>
-                  All tracked manga and their chapter status.
-                </CardDescription>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search manga..."
-                  className="pl-9"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Last Checked
-                  </TableHead>
-                  <TableHead className="text-center">Local</TableHead>
-                  <TableHead className="text-center">MangaDex</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 6 }).map((_, j) => (
-                        <TableCell key={j}>
-                          <div className="h-4 rounded bg-muted animate-pulse" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
+                      <Badge variant="outline" className="shrink-0">
+                        {formatDashboardDate(item.date_last_checked)}
+                      </Badge>
+                    </div>
                   ))
-                ) : filtered.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="text-center py-8 text-muted-foreground"
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Library tab: search, sort, bulk-select, table */}
+          <TabsContent value="library" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <MdBook className="h-5 w-5 text-primary" />
+                      Manga Library
+                    </CardTitle>
+                    <CardDescription>
+                      All tracked manga and their chapter status.
+                    </CardDescription>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search manga..."
+                      className="pl-9"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {selectedIds.size > 0 && (
+                  <div className="flex items-center gap-3 rounded-md bg-muted px-3 py-2 text-sm">
+                    <span className="font-medium">
+                      {selectedIds.size} selected
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => {
+                        toast.success(
+                          `Queued update check for ${selectedIds.size} title(s)`,
+                        );
+                        loadDashboardData();
+                        setSelectedIds(new Set());
+                      }}
                     >
-                      No manga found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filtered.map((m) => {
-                    const status = getMangaStatus(m);
-                    const {
-                      label,
-                      icon: Icon,
-                      className,
-                    } = statusConfig[status];
-                    return (
-                      <TableRow key={m.id}>
-                        <TableCell className="font-medium max-w-50 truncate">
-                          {m.manga_name}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
-                          {formatDashboardDate(m.date_last_checked)}
-                        </TableCell>
-                        <TableCell className="text-center text-sm">
-                          {m.latest_chapter_local}
-                        </TableCell>
-                        <TableCell className="text-center text-sm">
-                          {m.latest_chapter_from_mangadex}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge
-                            variant="outline"
-                            className={`text-xs gap-1 ${className}`}
-                          >
-                            <Icon className="h-3 w-3" />
-                            {label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                              >
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem>
-                                <Download className="mr-2 h-4 w-4" />
-                                Download new chapters
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <RefreshCw className="mr-2 h-4 w-4" />
-                                Check for updates
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                      Check selected
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setSelectedIds(new Set())}
+                    >
+                      <X className="mr-1 h-3.5 w-3.5" />
+                      Clear
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={
+                            sortedFiltered.length > 0 &&
+                            sortedFiltered.every((m) => selectedIds.has(m.id))
+                          }
+                          onCheckedChange={(checked) => {
+                            setSelectedIds(
+                              checked
+                                ? new Set(sortedFiltered.map((m) => m.id))
+                                : new Set(),
+                            );
+                          }}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <button
+                          className="flex items-center gap-1 hover:text-foreground"
+                          onClick={() => toggleSort("name")}
+                        >
+                          Title
+                          <ArrowUpDown className="h-3 w-3" />
+                        </button>
+                      </TableHead>
+                      <TableHead className="hidden md:table-cell">
+                        <button
+                          className="flex items-center gap-1 hover:text-foreground"
+                          onClick={() => toggleSort("checked")}
+                        >
+                          Last Checked
+                          <ArrowUpDown className="h-3 w-3" />
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-center">Local</TableHead>
+                      <TableHead className="text-center">MangaDex</TableHead>
+                      <TableHead className="text-center">
+                        <button
+                          className="mx-auto flex items-center gap-1 hover:text-foreground"
+                          onClick={() => toggleSort("status")}
+                        >
+                          Status
+                          <ArrowUpDown className="h-3 w-3" />
+                        </button>
+                      </TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 7 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <div className="h-4 rounded bg-muted animate-pulse" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : sortedFiltered.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={7}
+                          className="text-center py-8 text-muted-foreground"
+                        >
+                          No manga found.
                         </TableCell>
                       </TableRow>
-                    );
-                  })
+                    ) : (
+                      sortedFiltered.map((m) => {
+                        const status = getMangaStatus(m);
+                        const {
+                          label,
+                          icon: Icon,
+                          className,
+                        } = statusConfig[status];
+                        return (
+                          <TableRow
+                            key={m.id}
+                            data-state={
+                              selectedIds.has(m.id) ? "selected" : undefined
+                            }
+                          >
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedIds.has(m.id)}
+                                onCheckedChange={() => toggleSelected(m.id)}
+                                aria-label={`Select ${m.manga_name}`}
+                              />
+                            </TableCell>
+                            <TableCell className="font-medium max-w-50 truncate">
+                              {m.manga_name}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
+                              {formatDashboardDate(m.date_last_checked)}
+                            </TableCell>
+                            <TableCell className="text-center text-sm">
+                              {m.latest_chapter_local}
+                            </TableCell>
+                            <TableCell className="text-center text-sm">
+                              {m.latest_chapter_from_mangadex}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge
+                                variant="outline"
+                                className={`text-xs gap-1 ${className}`}
+                              >
+                                <Icon className="h-3 w-3" />
+                                {label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Download new chapters
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <RefreshCw className="mr-2 h-4 w-4" />
+                                    Check for updates
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Queue tab: the running/queued/finished job list */}
+          <TabsContent value="queue">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Download className="h-5 w-5 text-primary" />
+                  Download Queue
+                </CardTitle>
+                <CardDescription>
+                  Running, queued, and finished jobs saved to your account.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {jobs.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No active jobs.
+                    </p>
+                    <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Add manga
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {jobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="flex items-center gap-4 rounded-lg border p-3"
+                      >
+                        <Archive className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium truncate">
+                              {job.manga}
+                            </p>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 shrink-0 ${sourceConfig[job.source].className}`}
+                            >
+                              {sourceConfig[job.source].label}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {job.chapters}
+                            {job.detail ? ` · ${job.detail}` : ""}
+                          </p>
+                        </div>
+                        {job.status === "running" && (
+                          <div className="w-28 hidden sm:block">
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all"
+                                style={{ width: `${job.progress}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1 text-right">
+                              {job.progress}%{job.eta ? ` · ${job.eta}` : ""}
+                            </p>
+                          </div>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={`capitalize text-xs shrink-0 ${jobStatusConfig[job.status]}`}
+                        >
+                          {job.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
+
+      {/* Floating active-jobs indicator — stays visible from any tab so a
+          download in progress is never out of sight, without needing the
+          full Queue card permanently taking up page space. */}
+      {runningJobs > 0 && activeTab !== "queue" && (
+        <button
+          onClick={() => setActiveTab("queue")}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-lg transition-transform hover:-translate-y-0.5"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600" />
+          </span>
+          {runningJobs} downloading
+        </button>
+      )}
     </div>
   );
 }
