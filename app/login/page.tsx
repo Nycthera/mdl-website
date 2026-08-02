@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -47,21 +47,17 @@ function LoginPageInner() {
   // Banner message shown above the form — used for post-signup
   // "check your inbox" / "account created" messages passed via
   // ?registered= query param from the register page.
-  const [banner, setBanner] = useState("");
-
   // Read ?registered= query param on mount. The register page sets
   // this when it redirects here after signup so we can show a clear
   // message instead of silently landing on a blank login form.
-  useEffect(() => {
-    const registered = searchParams.get("registered");
-    if (registered === "confirm-email") {
-      setBanner(
-        "Account created! Check your inbox for a confirmation email, then sign in.",
-      );
-    } else if (registered === "1") {
-      setBanner("Account created! Please sign in to continue.");
-    }
-  }, [searchParams]);
+  const registered = searchParams.get("registered");
+
+  const banner =
+    registered === "confirm-email"
+      ? "Account created! Check your inbox for a confirmation email, then sign in."
+      : registered === "1"
+        ? "Account created! Please sign in to continue."
+        : "";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

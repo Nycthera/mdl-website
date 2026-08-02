@@ -19,7 +19,13 @@ describe("download archive helpers", () => {
     ];
 
     expect(groupUrlsByChapter(urls)).toEqual([
-      { label: "0001", imageUrls: ["https://example.com/0001-001.png", "https://example.com/0001-002.png"] },
+      {
+        label: "0001",
+        imageUrls: [
+          "https://example.com/0001-001.png",
+          "https://example.com/0001-002.png",
+        ],
+      },
       { label: "0002", imageUrls: ["https://example.com/0002-001.png"] },
       { label: "0049.1", imageUrls: ["https://example.com/0049.1-001.png"] },
     ]);

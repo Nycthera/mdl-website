@@ -17,7 +17,9 @@ export default function Terms() {
       <div className="container mx-auto max-w-3xl py-16 px-4">
         {/* Header */}
         <div className="mb-10">
-          <h1 className="text-3xl font-bold mb-2 sm:text-4xl">Terms of Service</h1>
+          <h1 className="text-3xl font-bold mb-2 sm:text-4xl">
+            Terms of Service
+          </h1>
           <p className="text-muted-foreground">Last updated July 2026</p>
         </div>
 

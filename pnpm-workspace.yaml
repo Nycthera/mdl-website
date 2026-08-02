@@ -1,6 +1,6 @@
 allowBuilds:
-  '@depot/cli': true
-  '@sentry/cli': true
+  "@depot/cli": true
+  "@sentry/cli": true
   bufferutil: true
   es5-ext: true
   esbuild: true

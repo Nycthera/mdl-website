@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { animateMock, staggerMock, getServerSessionMock } = vi.hoisted(() => ({
   animateMock: vi.fn(),
-  staggerMock: vi.fn((ms: number, options: { start: number }) => ({ ms, start: options.start })),
+  staggerMock: vi.fn((ms: number, options: { start: number }) => ({
+    ms,
+    start: options.start,
+  })),
   getServerSessionMock: vi.fn(),
 }));
 
@@ -30,7 +33,8 @@ describe("lib utility helpers", () => {
     animateMock.mockReset();
     staggerMock.mockClear();
     getServerSessionMock.mockReset();
-    document.body.innerHTML = "<div class=\"item\">one</div><div class=\"item\">two</div>";
+    document.body.innerHTML =
+      '<div class="item">one</div><div class="item">two</div>';
   });
 
   it("merges class names with tailwind utilities", () => {

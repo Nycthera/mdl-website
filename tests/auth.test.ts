@@ -3,8 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const setUserMock = vi.fn();
 const createClientMock = vi.fn();
 const createAdminClientMock = vi.fn();
-const credentialsProviderMock = vi.fn((config: unknown) => ({ type: "credentials", config }));
-const githubProviderMock = vi.fn((config: unknown) => ({ type: "github", config }));
+const credentialsProviderMock = vi.fn((config: unknown) => ({
+  type: "credentials",
+  config,
+}));
+const githubProviderMock = vi.fn((config: unknown) => ({
+  type: "github",
+  config,
+}));
 
 vi.mock("@sentry/nextjs", () => ({
   setUser: setUserMock,
@@ -80,7 +86,9 @@ describe("auth helpers", () => {
       auth: {
         admin: {
           listUsers: vi.fn().mockResolvedValue({
-            data: { users: [{ id: "supabase-123", email: "person@example.com" }] },
+            data: {
+              users: [{ id: "supabase-123", email: "person@example.com" }],
+            },
             error: null,
           }),
         },

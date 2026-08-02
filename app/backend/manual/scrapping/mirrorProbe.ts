@@ -47,7 +47,8 @@ export const MIRROR_REQUEST_HEADERS = {
  * the trace despite status 200.
  */
 export async function checkMirrorUrl(url: string): Promise<boolean> {
-  const head = typeof client.head === "function" ? client.head.bind(client) : null;
+  const head =
+    typeof client.head === "function" ? client.head.bind(client) : null;
 
   if (head) {
     try {

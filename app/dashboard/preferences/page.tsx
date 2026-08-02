@@ -30,7 +30,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDensity, type Density } from "@/components/providers/density-provider";
+import {
+  useDensity,
+  type Density,
+} from "@/components/providers/density-provider";
 import {
   DEFAULT_APP_PREFERENCES,
   type AppPreferences,
@@ -262,9 +265,7 @@ export default function PreferencesPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">
-                    Confirm new password
-                  </Label>
+                  <Label htmlFor="confirm-password">Confirm new password</Label>
                   <Input
                     id="confirm-password"
                     type="password"

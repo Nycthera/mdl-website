@@ -36,23 +36,30 @@ describe("mirror probing helpers", () => {
 
   it("checks a mirror URL and uses response status", async () => {
     clientGetMock.mockResolvedValueOnce({ status: 200 });
-    await expect(checkMirrorUrl("https://example.com/test.png")).resolves.toBe(true);
-    await expect(checkMirrorUrl("https://example.com/not-here.png")).resolves.toBe(false);
+    await expect(checkMirrorUrl("https://example.com/test.png")).resolves.toBe(
+      true,
+    );
+    await expect(
+      checkMirrorUrl("https://example.com/not-here.png"),
+    ).resolves.toBe(false);
   });
 
   it("finds the first working mirror url", async () => {
     clientGetMock.mockResolvedValueOnce({ status: 404 });
     clientGetMock.mockResolvedValueOnce({ status: 200 });
 
-    await expect(findWorkingMirrorUrl(["https://one.example/test.png", "https://two.example/test.png"])).resolves.toBe(
-      "https://two.example/test.png",
-    );
+    await expect(
+      findWorkingMirrorUrl([
+        "https://one.example/test.png",
+        "https://two.example/test.png",
+      ]),
+    ).resolves.toBe("https://two.example/test.png");
   });
 
   it("returns the matching mirror base for a known URL", () => {
-    expect(mirrorBaseFromUrl("https://scans.lastation.us/manga/foo/001-001.png")).toBe(
-      "https://scans.lastation.us/manga/",
-    );
+    expect(
+      mirrorBaseFromUrl("https://scans.lastation.us/manga/foo/001-001.png"),
+    ).toBe("https://scans.lastation.us/manga/");
     expect(mirrorBaseFromUrl("https://example.com/manga/foo")).toBeNull();
   });
 

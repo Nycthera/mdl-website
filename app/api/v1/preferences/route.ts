@@ -10,10 +10,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getSessionUserId } from "@/lib/get-session";
-import {
-  resolvePreferences,
-  type AppPreferences,
-} from "@/lib/preferences";
+import { resolvePreferences, type AppPreferences } from "@/lib/preferences";
 
 interface PatchBody {
   username?: string;
@@ -73,7 +70,10 @@ export async function PATCH(req: Request) {
 
   if (body.newPassword && existingMetadata.provider === "github") {
     return NextResponse.json(
-      { error: "This account signs in with GitHub and has no password to change." },
+      {
+        error:
+          "This account signs in with GitHub and has no password to change.",
+      },
       { status: 400 },
     );
   }
