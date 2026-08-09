@@ -7,3 +7,7 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   utf-8-validate: true
+minimumReleaseAgeExclude:
+  - '@trigger.dev/build@4.5.10'
+  - '@trigger.dev/core@4.5.10'
+  - '@trigger.dev/sdk@4.5.10'

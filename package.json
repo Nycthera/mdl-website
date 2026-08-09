@@ -2,7 +2,7 @@
   "name": "mdl-website",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.16.0",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "next dev",
     "server": "next dev",
@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true",
     "start_fe_and_be": "concurrently -k -n FRONTEND,BACKEND -c blue,green \"pnpm dev\" \"pnpm exec trigger dev\"",
-    "typecheck": "rimraf tsconfig.tsbuildinfo && tsc --noEmit"
+    "typecheck": "rimraf tsconfig.tsbuildinfo && tsc --noEmit",
+    "upgrade_trigger": "pnpm up @trigger.dev/sdk @trigger.dev/build trigger.dev"
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",
@@ -25,7 +26,7 @@
     "@supabase/realtime-js": "^2.110.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
-    "@trigger.dev/sdk": "^4.5.9",
+    "@trigger.dev/sdk": "4.5.10",
     "@vercel/analytics": "^2.0.1",
     "animejs": "^4.4.1",
     "archiver": "^8.0.0",
@@ -56,7 +57,7 @@
     "@tailwindcss/postcss": "^4.0.0",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
-    "@trigger.dev/build": "^4.5.9",
+    "@trigger.dev/build": "4.5.10",
     "@types/archiver": "^8.0.0",
     "@types/cheerio": "^1.0.0",
     "@types/node": "^20.0.0",

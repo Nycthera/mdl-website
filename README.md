@@ -43,7 +43,7 @@ Full endpoint reference (request/response shapes, auth requirements) is availabl
 
 ## Project structure
 
-```
+```text
 app/
   api/v1/           # REST endpoints (download, jobs, jobs/:id, preferences, proxy, status, heartbeat, auth, resolveManual, mangadex/cover)
   backend/          # Scraping + Supabase logic per source
@@ -135,13 +135,13 @@ pnpm test:run     # same as above
 
 ### Other scripts
 
-| Script | Purpose |
-|---|---|
-| `pnpm build` / `pnpm start` | Production build / serve |
-| `pnpm lint` / `pnpm lint:fix` | ESLint |
-| `pnpm format` | Prettier |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm doctor` | Run `react-doctor` |
+| Script                        | Purpose                  |
+| ----------------------------- | ------------------------ |
+| `pnpm build` / `pnpm start`   | Production build / serve |
+| `pnpm lint` / `pnpm lint:fix` | ESLint                   |
+| `pnpm format`                 | Prettier                 |
+| `pnpm typecheck`              | `tsc --noEmit`           |
+| `pnpm doctor`                 | Run `react-doctor`       |
 
 ## Notes
 
