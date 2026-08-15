@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+import { DEFAULT_APP_PREFERENCES } from "@/lib/preferences";
 
 /**
  * Pushes the authenticated user into Sentry's current scope so every
@@ -211,6 +212,10 @@ export const authOptions: NextAuthOptions = {
                 username: user.name ?? user.email!.split("@")[0],
                 avatar_url: user.image,
                 provider: "github",
+                // Seed same as the credentials signup path (see
+                // createUser.ts) so GitHub-first users also start with
+                // a real preferences object instead of null.
+                preferences: DEFAULT_APP_PREFERENCES,
               },
             });
 

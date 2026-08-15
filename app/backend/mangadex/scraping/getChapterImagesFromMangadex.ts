@@ -172,6 +172,41 @@ export async function getChapterImagesFromMangaDex(
   };
 }
 
+/**
+ * Returns the latest published chapter number for a MangaDex series, or
+ * null if it has no chapters in the given language.
+ *
+ * Deliberately NOT built on getAllChapterIDsForMangaDex — that pages
+ * through the *entire* feed (hundreds of requests for a long-running
+ * series) just to find the last entry, which is wasteful for something
+ * that just needs "what's the newest chapter right now". A single
+ * `order[chapter]=desc&limit=1` request gets the same answer in one
+ * call.
+ *
+ * Chapter numbers come back as strings (MangaDex allows non-integer
+ * chapters like "7.1"), so the caller compares them as numbers.
+ */
+export async function getLatestMangaDexChapterNumber(
+  mangaId: string,
+  language = "en",
+): Promise<number | null> {
+  const res = await mangaDexFetch(
+    `https://api.mangadex.org/manga/${mangaId}/feed?limit=1&offset=0&translatedLanguage[]=${language}&order[chapter]=desc`,
+  );
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch latest chapter (${res.status})`);
+  }
+
+  const data = await res.json();
+  const chapterStr = data.data?.[0]?.attributes?.chapter;
+
+  if (chapterStr == null) return null;
+
+  const parsed = Number(chapterStr);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export async function getAllChapterIDsForMangaDex(
   mangaId: string,
   language = "en",

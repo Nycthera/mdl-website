@@ -19,6 +19,7 @@
 // page can show a clear "check your inbox" message instead of a
 // silent bounce.
 import { supabase } from "@/app/backend/supabaseFunctions/supabaseClient";
+import { DEFAULT_APP_PREFERENCES } from "@/lib/preferences";
 
 export interface RegisterResult {
   /** The created Supabase user object. */
@@ -47,6 +48,12 @@ export async function registerUser(
     options: {
       data: {
         username,
+        // Seed preferences at signup so user_metadata.preferences is a
+        // real object from the start instead of null until the user's
+        // first PATCH to /api/v1/preferences. resolvePreferences() would
+        // paper over the null either way, but this keeps the stored row
+        // consistent with what the API actually returns.
+        preferences: DEFAULT_APP_PREFERENCES,
       },
       // Override the confirmation link so it points to the current
       // deployment origin (e.g. https://mdl-website-kappa.vercel.app)

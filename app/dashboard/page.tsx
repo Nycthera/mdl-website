@@ -139,25 +139,31 @@ const statusConfig = {
   "up-to-date": {
     label: "Up to date",
     icon: CheckCircle2,
-    className: "text-green-600 bg-green-50 border-green-200",
+    className:
+      "text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5",
   },
   behind: {
     label: "Behind",
     icon: AlertCircle,
-    className: "text-amber-600 bg-amber-50 border-amber-200",
+    className:
+      "text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5",
   },
   checking: {
     label: "Checking",
     icon: Clock,
-    className: "text-muted-foreground bg-muted border-border",
+    className:
+      "text-muted-foreground bg-muted border border-border rounded-full px-2 py-0.5",
   },
 };
 
 const jobStatusConfig = {
-  running: "text-blue-600 bg-blue-50 border-blue-200",
-  queued: "text-muted-foreground bg-muted border-border",
-  done: "text-green-600 bg-green-50 border-green-200",
-  failed: "text-destructive bg-destructive/10 border-destructive/20",
+  running:
+    "text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-full px-2 py-0.5",
+  queued:
+    "text-muted-foreground bg-muted border border-border rounded-full px-2 py-0.5",
+  done: "text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5",
+  failed:
+    "text-destructive bg-destructive/10 border border-destructive/20 rounded-full px-2 py-0.5",
 };
 
 // API response shape from /api/v1/jobs/:runId
