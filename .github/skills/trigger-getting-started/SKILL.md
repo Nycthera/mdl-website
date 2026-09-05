@@ -11,7 +11,7 @@ description: >
   and you are writing task code, switch to the trigger-authoring-tasks skill.
 type: core
 library: trigger.dev
-library_version: "4.5.3"
+library_version: "4.5.10"
 sources:
   - docs/quick-start.mdx
   - docs/manual-setup.mdx
@@ -85,13 +85,7 @@ export default defineConfig({
   maxDuration: 3600,
   retries: {
     enabledInDev: false,
-    default: {
-      maxAttempts: 3,
-      factor: 2,
-      minTimeoutInMs: 1000,
-      maxTimeoutInMs: 10000,
-      randomize: true,
-    },
+    default: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 10000, randomize: true },
   },
 });
 ```
@@ -161,9 +155,7 @@ task code is never bundled into your app. Trigger by id, not by calling the task
 import { tasks } from "@trigger.dev/sdk";
 import type { helloWorld } from "@/trigger/example"; // type-only
 
-const handle = await tasks.trigger<typeof helloWorld>("hello-world", {
-  name: "Ada",
-});
+const handle = await tasks.trigger<typeof helloWorld>("hello-world", { name: "Ada" });
 ```
 
 `TRIGGER_SECRET_KEY` must be set wherever this runs. Framework specifics live in the
@@ -219,4 +211,4 @@ Docs:
 
 ## Version
 
-Generated for @trigger.dev/sdk 4.5.3. Re-run the trigger.dev skills installer after upgrading.
+Generated for @trigger.dev/sdk 4.5.10. Re-run the trigger.dev skills installer after upgrading.

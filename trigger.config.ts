@@ -6,7 +6,7 @@ import build from "next/dist/build";
 export default defineConfig({
   project: process.env.TRIGGER_PROJECT_ID ?? "proj_shayrpiwadsohrihzqdu",
   dirs: ["./app/src/trigger"],
-  runtime: "node",
+  runtime: "node-24",
   maxDuration: 3600, // scraping a long-running series' page URLs can take a while (image bytes are downloaded client-side now, not in this task)
   retries: {
     enabledInDev: true,
